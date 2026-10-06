@@ -1518,7 +1518,7 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
   if (typeof Image !== 'undefined'){
     bgImg = new Image();
     bgImg.onload = function(){ buildBackground(); };
-    bgImg.src = 'assets/prison-bg.webp';
+    bgImg.src = 'assets/prison-bg.webp?v=3';
     if (bgImg.complete && bgImg.naturalWidth) buildBackground();
   }
   function layoutUI(){
