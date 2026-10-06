@@ -365,13 +365,17 @@ function yardSpot(){
   return [rand(620,1290), rand(320,490)];                       // open yard
 }
 // Seats at the tables in the OPEN-AIR dining courtyard (roofless — never the kitchen roof).
+// Golden-angle spiral around each table: every inmate gets a unique spot, no stacking.
 function cafeteriaSeat(i){
   const tables = [[840,670],[950,670],[1060,685],[840,725],[950,725],[1060,735]];
   const t = tables[i % tables.length];
-  const offs = [[-24,0],[24,0],[0,-20],[0,20]];
-  const o = offs[Math.floor(i / tables.length) % offs.length];
-  let x = t[0]+o[0]+rand(-4,4), y = t[1]+o[1]+rand(-4,4), tries = 0;
-  while (onRoof(x, y, 6) && tries < 12){ x = t[0]+rand(-30,30); y = t[1]+rand(-24,24); tries++; }
+  const k = Math.floor(i / tables.length);
+  const ang = k * 2.399963;                 // golden angle — never repeats a direction
+  const rad = 26 + (k % 4) * 8;             // 26/34/42/50px rings around the table
+  let x = t[0] + Math.cos(ang)*rad, y = t[1] + Math.sin(ang)*rad, tries = 0;
+  while (!isWalkable(x, y) && tries < 14){
+    x = t[0] + rand(-48,48); y = t[1] + rand(-42,42); tries++;
+  }
   return [x, y];
 }
 // Work stations among the crates in the open crate yard (never on the CAFETERIA roof).
@@ -433,9 +437,10 @@ function makeInmate(blockIdx, cellIdx){
     needs: { hunger:rand(0.5,0.9), energy:rand(0.5,0.9), comfort:rand(0.5,0.9), safety:rand(0.5,0.9), social:rand(0.4,0.8) },
     story: '',
     gangId: null, friends: [], bond: {}, beef: {},
+    talkWith: null, talkT: 0, talkCd: rand(0,10), stroll: false,  // visible chats + wander
     contra: null,
     block: blockIdx, cellIdx,
-    x: spot[0], y: spot[1],
+    x: spot[0], y: spot[1], px: spot[0], py: spot[1],
     path: [], targetZone: 'block' + b.name, spotTarget: null,
     state: 'idle',           // idle | moving | fight | riot | leaving
     face: rand(0, Math.PI*2), animT: rand(0,10),
@@ -570,6 +575,8 @@ function targetFor(p){
 }
 function assignTarget(p, force){
   if (p.state === 'fight' || p.state === 'riot' || p.state === 'leaving') return;
+  if (p.state === 'talking') endTalk(p, false);   // phase change breaks up the chat
+  p.stroll = false;
   const t = targetFor(p);
   if (!force && p.targetZone === t.zone && !p.path.length) {
     if (!p.spotTarget || dist(p.x, p.y, p.spotTarget[0], p.spotTarget[1]) > 40){
@@ -623,6 +630,59 @@ function compatible(a, b){
   if (a.needs.social < 0.45 && b.needs.social < 0.45) return true;
   return false;
 }
+// ---- visible chats: relationships build where the user can watch ----
+// stranger (bond 0) -> talking to (bond 1-2) -> friends (bond 3+)
+function tryStartChat(a, b){
+  if (a.state === 'talking' || b.state === 'talking') return;
+  if ((a.state !== 'idle' && a.state !== 'moving') || (b.state !== 'idle' && b.state !== 'moving')) return;
+  if (a.talkCd > 0 || b.talkCd > 0) return;
+  if (a.solitaryT > 0 || b.solitaryT > 0) return;
+  if (dist(a.x, a.y, b.x, b.y) > 70) return;
+  // cap concurrent chats so the yard doesn't freeze mid-conversation
+  let n = 0;
+  for (const p of sim.inmates) if (p.state === 'talking' && p.id < (p.talkWith || 0)) n++;
+  if (n >= 4) return;
+  const ang = angTo(a.x, a.y, b.x, b.y);
+  a.face = ang; b.face = ang + Math.PI;   // turn to face each other
+  a.path = []; b.path = [];
+  a.state = 'talking'; b.state = 'talking';
+  a.talkWith = b.id; b.talkWith = a.id;
+  a.talkT = b.talkT = rand(2, 5);          // 2-5 sim-minutes of conversation
+}
+function endTalk(p, completed){
+  const q = p.talkWith ? sim.inmates.find(r => r.id === p.talkWith) : null;
+  if (completed && q && q.state === 'talking'){
+    const key = q.id;
+    p.bond[key] = (p.bond[key] || 0) + 1;
+    q.bond[p.id] = (q.bond[p.id] || 0) + 1;
+    if (p.bond[key] >= 3 && p.friends.length < 5 && !p.friends.includes(key)){
+      p.friends.push(key); q.friends.push(p.id);
+      p.needs.social = clamp(p.needs.social + 0.08, 0, 1);
+      q.needs.social = clamp(q.needs.social + 0.08, 0, 1);
+    }
+    p.talkCd = rand(40, 80); q.talkCd = rand(40, 80);   // cooldown before the next chat
+  }
+  p.talkWith = null; p.talkT = 0;
+  if (p.state === 'talking') p.state = 'idle';
+  if (q && q.state === 'talking'){ q.talkWith = null; q.talkT = 0; q.state = 'idle'; }
+}
+// frequent chat initiation (every 5 ticks) — separate from the 20-tick
+// beef/gang/contraband pass so fight balance doesn't change
+function tickChats(){
+  const ps = sim.inmates;
+  for (let i = 0; i < ps.length; i++){
+    const a = ps[i];
+    if (a.state === 'leaving' || a.state === 'talking') continue;
+    for (let j = i+1; j < ps.length; j++){
+      const b = ps[j];
+      if (b.state === 'leaving' || b.state === 'talking') continue;
+      if (dist(a.x, a.y, b.x, b.y) > 85) continue;
+      if (a.friends.includes(b.id)) continue;
+      if ((a.beef[b.id] || 0) > 2) continue;
+      if (compatible(a, b)) tryStartChat(a, b);
+    }
+  }
+}
 function tickSocial(){
   const ps = sim.inmates;
   for (let i = 0; i < ps.length; i++){
@@ -641,12 +701,7 @@ function tickSocial(){
       if ((aAgg && bAgg && Math.random() < 0.5) || (rival && (aAgg||bAgg) && Math.random() < 0.6)){
         a.beef[key] = (a.beef[key]||0)+1; b.beef[a.id] = (b.beef[a.id]||0)+1;
       } else if (compatible(a,b)){
-        a.bond[key] = (a.bond[key]||0)+1; b.bond[a.id] = (b.bond[a.id]||0)+1;
-        if (a.bond[key] > 3 && a.friends.length < 5){
-          a.friends.push(b.id); b.friends.push(a.id);
-          a.needs.social = clamp(a.needs.social+0.08,0,1);
-          b.needs.social = clamp(b.needs.social+0.08,0,1);
-        }
+        // (bonding chats are initiated by tickChats every 5 ticks — more visible)
       }
     }
   }
@@ -708,12 +763,12 @@ function tickSocial(){
 function tickFights(dt){
   // spark new fights
   for (const a of sim.inmates){
-    if (a.state !== 'idle' && a.state !== 'moving') continue;
+    if (a.state !== 'idle' && a.state !== 'moving' && a.state !== 'talking') continue;
     if (a.fightT > 0 || a.solitaryT > 0) continue;
     for (const bid of Object.keys(a.beef)){
       if ((a.beef[bid]||0) <= 2) continue;
       const b = sim.inmates.find(r => r.id === Number(bid));
-      if (!b || (b.state !== 'idle' && b.state !== 'moving') || b.fightT > 0) continue;
+      if (!b || (b.state !== 'idle' && b.state !== 'moving' && b.state !== 'talking') || b.fightT > 0) continue;
       if (dist(a.x,a.y,b.x,b.y) > 90) continue;
       const aggr = (a.traits.includes('aggressive')?1:0) + (b.traits.includes('aggressive')?1:0);
       let chance = 0.030 + 0.05*aggr + 0.08*sim.gangTension + 0.05*(1-moodOf(a));
@@ -802,6 +857,7 @@ function tickFights(dt){
   }
 }
 function startFight(a, b){
+  endTalk(a, false); endTalk(b, false);   // a beef interrupts the conversation
   a.state = 'fight'; b.state = 'fight';
   a.fightWith = b.id; b.fightWith = a.id;
   a.fightT = 9; b.fightT = 9; a.subdueT = 0; b.subdueT = 0;
@@ -848,6 +904,7 @@ function startRiot(){
   const n = Math.max(4, Math.floor(ps.length * rand(0.35, 0.55)));
   const shuffled = ps.slice().sort(() => Math.random() - 0.5).slice(0, n);
   sim.riot = { active:true };
+  for (const p of sim.inmates) if (p.state === 'talking') endTalk(p, false);
   for (const p of shuffled){
     p.state = 'riot'; p.path = []; p.subdueT = 0;
     p.riotTarget = null;
@@ -964,6 +1021,9 @@ function midnight(){
 // ============================================================
 function tick(dt){
   sim.tickCount++;
+  // snapshot pre-tick positions for render interpolation (smooth movement)
+  for (const p of sim.inmates){ p.px = p.x; p.py = p.y; }
+  for (const g of sim.guards){ g.px = g.x; g.py = g.y; }
   const prevPhase = sim.phase;
   sim.minutes += dt;
   if (sim.minutes >= 1440){ sim.minutes -= 1440; sim.day++; midnight(); }
@@ -984,6 +1044,7 @@ function tick(dt){
   if (sim.tickCount % 20 === 0) sim.recentFights = Math.max(0, sim.recentFights - 1);
 
   for (const p of sim.inmates){
+    if (p.talkCd > 0) p.talkCd -= dt;
     if (p.state === 'leaving'){
       if (moveAlong(p, dt, 70)){
         removeInmate(p, p.name + ' transferred out.');
@@ -997,11 +1058,26 @@ function tick(dt){
       p.x = s[0]; p.y = s[1]; p.path = [];
       if (p.solitaryT <= 0){ log(p.name + ' released from solitary.', 'info'); assignTarget(p, true); }
     } else if (p.state === 'moving'){
-      if (moveAlong(p, dt, 60)) p.state = 'idle';
+      if (moveAlong(p, dt, p.stroll ? 32 : 60)){ p.state = 'idle'; p.stroll = false; }
+    } else if (p.state === 'talking'){
+      p.animT += dt;
+      p.talkT -= dt;
+      if (p.talkT <= 0){
+        const q = p.talkWith ? sim.inmates.find(r => r.id === p.talkWith) : null;
+        endTalk(p, true);
+        if (p.state === 'idle') assignTarget(p, true);
+        if (q && q.state === 'idle') assignTarget(q, true);
+      }
     } else if (p.state === 'idle'){
       p.animT += dt;
-      // small idle drift inside current zone (direct short hop, stays walkable)
-      if (Math.random() < 0.02*dt && p.spotTarget){
+      if (p.targetZone === 'yard' && Math.random() < 0.06*dt){
+        // wander the yard — stroll to a nearby spot instead of standing in knots
+        const s = [p.x + rand(-150,150), p.y + rand(-150,150)];
+        if (zoneOf(s[0], s[1]) === 'yard' && isWalkable(s[0], s[1]) && segmentClear(p.x, p.y, s[0], s[1])){
+          setPath(p, [s]); p.state = 'moving'; p.stroll = true;
+        }
+      } else if (Math.random() < 0.02*dt && p.spotTarget){
+        // small idle drift inside current zone (direct short hop, stays walkable)
         const s = [p.spotTarget[0] + rand(-30,30), p.spotTarget[1] + rand(-30,30)];
         if (isWalkable(s[0], s[1]) && dist(p.x,p.y,s[0],s[1]) < 120){ setPath(p, [s]); p.state = 'moving'; }
       }
@@ -1009,6 +1085,7 @@ function tick(dt){
     tickNeeds(p, dt);
   }
   if (sim.tickCount % 20 === 0) tickSocial();
+  if (sim.tickCount % 10 === 0) tickChats();   // regular visible chats — the user watches bonds form
   tickFights(dt);
   tickRiot(dt);
   if (sim.tickCount % 10 === 0) updateRiotRisk();
@@ -1096,6 +1173,7 @@ const W = {
   solitary(id){
     const p = sim.inmates.find(x => x.id === id);
     if (!p) return false;
+    endTalk(p, false);
     p.solitaryT = 1440; p.state = 'idle'; p.path = []; p.fightWith = null;
     const b = BLOCKS[p.block], s = cellSpot(b, p.cellIdx);
     p.x = s[0]; p.y = s[1];
@@ -1107,6 +1185,7 @@ const W = {
     const p = sim.inmates.find(x => x.id === id);
     if (!p) return false;
     if (!spend(500)){ toast('Not enough funds.', true); return false; }
+    endTalk(p, false);
     p.state = 'leaving'; p.path = []; p.fightWith = null;
     routeTo(p, 'gate', [NODES.gate[0], NODES.gate[1] + 40]);
     log(p.name + ' approved for transfer. Escorting to the gate.', 'info');
@@ -1167,20 +1246,29 @@ function drawFigure(ctx, e, now){
   const dwelling = e.dwellT > 0;
   const moving = ((e.path && e.path.length > 0 && !dwelling)) || e.state === 'fight' || e.state === 'riot' ||
                  e.state === 'respond' || e.state === 'moving-patrol';
-  const wob = moving ? Math.sin(e.animT * 9) : 0;                    // walk cycle
-  const bob = moving ? Math.abs(Math.sin(e.animT * 9)) * -1.6
-                     : Math.sin(e.animT * 1.8 + e.id) * 0.6;          // bob / idle sway
+  // walk cycle + idle sway driven by per-frame time (smooth) instead of the tick-stepped animT
+  const wob = moving ? Math.sin(now * 9 + e.id * 1.7) : 0;                    // walk cycle
+  const bob = moving ? Math.abs(Math.sin(now * 9 + e.id * 1.7)) * -1.6
+                     : Math.sin(now * 1.8 + e.id) * 0.6;                       // bob / idle sway
   const fx = Math.cos(e.face), fy = Math.sin(e.face);
   const isGuard = e.kind === 'guard';
   const down = isGuard && e.downT > 0;
 
+  // smooth movement: interpolate between last tick's position and this tick's.
+  // Teleport guard (>200px jump: solitary snaps, spawns) — never streak across the map.
+  const fr = (sim.tickFrac || 0);
+  let bx = e.x, by = e.y;
+  if (e.px !== undefined && fr > 0 && fr < 1){
+    const dx = e.x - e.px, dy = e.y - e.py;
+    if (dx*dx + dy*dy < 40000){ bx = e.px + dx*fr; by = e.py + dy*fr; }
+  }
   // lateral offset: spread entities across the path width instead of
   // single-filing the centerline. Perpendicular to facing, clamped to
   // walkable ground so the drawn figure never lands on a roof or wall.
-  let ox = e.x, oy = e.y;
+  let ox = bx, oy = by;
   if (e.latOff){
-    const cx = e.x - Math.sin(e.face) * e.latOff;
-    const cy = e.y + Math.cos(e.face) * e.latOff;
+    const cx = bx - Math.sin(e.face) * e.latOff;
+    const cy = by + Math.cos(e.face) * e.latOff;
     if (isWalkable(cx, cy)){ ox = cx; oy = cy; }
   }
 
@@ -1269,6 +1357,23 @@ function drawFigure(ctx, e, now){
   if (sim.selected === e.id){
     ctx.strokeStyle = '#f5b942'; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.arc(ox, oy - 12, 17, 0, Math.PI*2); ctx.stroke();
+  }
+  // speech bubble over a chatting pair — drawn once per pair by the lower id,
+  // floating at the pair midpoint so it reads as one conversation
+  if (e.state === 'talking' && e.talkWith && e.id < e.talkWith){
+    const q = sim.inmates.find(r => r.id === e.talkWith);
+    if (q && q.state === 'talking'){
+      const mx = (ox + q.x) / 2, my = Math.min(oy, q.y) - 46 + Math.sin(now * 3 + e.id) * 1.5;
+      ctx.fillStyle = 'rgba(255,255,255,0.93)';
+      rr(ctx, mx - 14, my - 9, 28, 18, 7); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(mx - 4, my + 8); ctx.lineTo(mx + 4, my + 8); ctx.lineTo(mx, my + 15);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#3a3a3a';
+      ctx.beginPath(); ctx.arc(mx - 6, my, 2.1, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx, my, 2.1, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx + 6, my, 2.1, 0, Math.PI*2); ctx.fill();
+    }
   }
 }
 
@@ -1380,6 +1485,7 @@ __lockdown.advance = function(dtRealSec){
     let a = dtRealSec * 3 * sim.speed;
     while (a >= 1 && steps < 200000){ tick(1); a -= 1; steps++; }
   }
+  sim.tickFrac = 0;   // tests draw at logical tick positions (deterministic)
   return steps;
 };
 
@@ -1782,8 +1888,15 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
     h += needBar('Hunger', p.needs.hunger) + needBar('Energy', p.needs.energy) +
          needBar('Comfort', p.needs.comfort) + needBar('Safety', p.needs.safety) +
          needBar('Social', p.needs.social);
-    h += '<div class="sub" style="margin-top:8px">Friends: '+p.friends.length +
-      ' • Block ' + BLOCKS[p.block].name + ' • ' + zoneOf(p.x,p.y) + '</div>';
+    h += '<div class="sub" style="margin-top:10px;margin-bottom:4px"><b>Relationships</b></div>';
+    const nm = function(id){ const q = sim.inmates.find(function(r){ return r.id === id; }); return q ? q.name : null; };
+    const frNames = p.friends.map(nm).filter(Boolean);
+    const talkingNames = Object.keys(p.bond).map(Number).filter(function(k){
+      return !p.friends.includes(k) && (p.bond[k] || 0) >= 1 && (p.bond[k] || 0) < 3;
+    }).map(nm).filter(Boolean);
+    h += '<div class="sub">Friends (' + frNames.length + '): ' + (frNames.join(', ') || '—') + '</div>';
+    h += '<div class="sub">Talking to: ' + (talkingNames.join(', ') || '—') + '</div>';
+    h += '<div class="sub" style="margin-top:6px">Block ' + BLOCKS[p.block].name + ' • ' + zoneOf(p.x,p.y) + '</div>';
     h += '<div class="pbtns"><button id="psol" class="warn">SOLITARY 24H</button>' +
          '<button id="ptran">TRANSFER $500</button></div>';
     profEl.innerHTML = h;
@@ -1915,6 +2028,7 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
     let n = 0;
     while (acc >= 1 && n < 600){ tick(1); acc -= 1; n++; }
     if (n >= 600) acc = 0;
+    sim.tickFrac = acc;   // 0..1 progress toward the next tick — render interpolates with it
     render(ctx, canvas.width, canvas.height, now/1000);
     if (++frames % 6 === 0) updateHUD();
     requestAnimationFrame(frame);
@@ -1928,6 +2042,7 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
       let a = dtReal * 3 * sim.speed;
       while (a >= 1 && steps < 200000){ tick(1); a -= 1; steps++; }
     }
+    sim.tickFrac = 0;   // tests draw at logical tick positions (deterministic)
     return steps;
   };
   // test hook: camera/view state for gesture + layout verification
