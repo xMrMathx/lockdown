@@ -444,7 +444,7 @@ function makeInmate(blockIdx, cellIdx){
     path: [], targetZone: 'block' + b.name, spotTarget: null,
     state: 'idle',           // idle | moving | fight | riot | leaving
     face: rand(0, Math.PI*2), animT: rand(0,10),
-    latOff: rand(-14,14), speedMult: rand(0.85,1.15), dwellT: 0,  // natural-movement jitter
+    latOff: rand(-28,28), speedMult: rand(0.85,1.15), dwellT: 0,  // natural-movement jitter
     fightWith: null, fightT: 0, subdueT: 0,
     solitaryT: 0, injuredT: 0,
     node: b.node,
@@ -466,7 +466,7 @@ function makeGuard(){
     path: [], node: 'gate',
     state: 'patrol',         // patrol | respond | subdue | down
     face: rand(0, Math.PI*2), animT: rand(0,10),
-    latOff: rand(-14,14), speedMult: rand(0.85,1.15), dwellT: 0,  // natural-movement jitter
+    latOff: rand(-28,28), speedMult: rand(0.85,1.15), dwellT: 0,  // natural-movement jitter
     target: null, subdueT: 0, downT: 0,
     skin: pick(SKIN),
   };
@@ -517,9 +517,43 @@ function log(msg, cls){
 function setPath(e, pts){
   e.path = pts.slice();
 }
+// pick a detour node roughly perpendicular to the from→to line, so different
+// inmates visibly take different hallways. Returns null if none qualifies.
+function pickDetour(from, to, directNodes){
+  const A = NODES[from], B = NODES[to];
+  const dx = B[0]-A[0], dy = B[1]-A[1];
+  const len2 = dx*dx + dy*dy;
+  if (!len2) return null;
+  const onRoute = {};
+  for (const k of directNodes) onRoute[k] = true;
+  const keys = Object.keys(NODES);
+  let best = null, bestScore = -1;
+  for (let i = 0; i < 4; i++){
+    const k = keys[Math.floor(Math.random()*keys.length)];
+    if (k === from || k === to || onRoute[k]) continue;
+    const P = NODES[k];
+    const t = clamp(((P[0]-A[0])*dx + (P[1]-A[1])*dy) / len2, 0, 1);
+    const perp = dist(P[0], P[1], A[0]+t*dx, A[1]+t*dy);
+    if (perp < 120) continue;   // must actually leave the corridor
+    if (perp > bestScore){ bestScore = perp; best = k; }
+  }
+  return best;
+}
 function routeTo(e, nodeName, finalSpot){
   const from = nearestNodeWalkable(e.x, e.y);
-  const nodes = bfsPath(from, nodeName);
+  let nodes = bfsPath(from, nodeName);
+  // route variation (inmates only — guards respond urgently): ~40% of trips
+  // detour through a random intermediate node so inmates take different hallways
+  if (e.kind !== 'guard' && Math.random() < 0.4 && nodes.length > 2){
+    const detour = pickDetour(from, nodeName, nodes);
+    if (detour){
+      const leg1 = bfsPath(from, detour), leg2 = bfsPath(detour, nodeName);
+      if (leg1.length > 1 && leg2.length > 1 &&
+          leg1.length + leg2.length <= nodes.length * 2.5 + 2){
+        nodes = leg1.concat(leg2.slice(1));
+      }
+    }
+  }
   const pts = nodes.map(k => NODES[k].slice());
   if (finalSpot) pts.push(finalSpot.slice());
   // drop first point if we're already standing on it
@@ -1030,14 +1064,21 @@ function tick(dt){
   const hour = sim.minutes / 60;
   sim.phase = phaseAt(hour).name;
   if (sim.phase !== prevPhase){
-    // staggered release: inmates head out in waves instead of one conga line
+    // departure delays: each inmate gets a personal leave time 0–30 sim-min out,
+    // spreading a phase change over ~30+ sim-minutes instead of one burst.
+    // (Ticks are 1 sim-minute, so this scales correctly at every game speed.)
     sim.releaseQueue = shuffle(sim.inmates.slice());
+    for (const p of sim.releaseQueue) p.releaseAt = sim.tickCount + randi(0, 30);
     if (sim.phase !== 'SLEEP') log('— ' + phaseAt(hour).label + ' —', 'dim');
   }
-  // release a few inmates per tick — the stream spreads out naturally
+  // release inmates whose departure time has come, a few per tick.
+  // assignTarget stays immediate for lockdown/fights/riots (they never use the queue).
   if (sim.releaseQueue.length){
-    const n = Math.min(sim.releaseQueue.length, 3);
-    for (let i = 0; i < n; i++) assignTarget(sim.releaseQueue.pop(), true);
+    let n = 0;
+    sim.releaseQueue = sim.releaseQueue.filter(p => {
+      if (n < 4 && p.releaseAt <= sim.tickCount){ assignTarget(p, true); n++; return false; }
+      return true;
+    });
   }
   if (sim.shakedownCd > 0) sim.shakedownCd -= dt;
   sim.shakeRecent = Math.max(0, sim.shakeRecent - dt/1440);
@@ -1196,7 +1237,7 @@ const W = {
 
 // test / debug hooks (also used by UI)
 function inmateAt(x, y){
-  let best = null, bd = 20;
+  let best = null, bd = 30;   // 30px: figures render up to ±28px off their logical spot
   for (const p of sim.inmates){
     const d = dist(x, y, p.x, p.y - 12);
     if (d < bd){ bd = d; best = p; }
