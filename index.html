@@ -31,7 +31,9 @@
   #riskbar { height:8px; border-radius:4px; background:#2a2c33; margin:6px 0 4px; overflow:hidden; }
   #riskfill { height:100%; width:20%; border-radius:4px; background:linear-gradient(90deg,#7fd069,#f5b942,#e05252); transition:width .5s; }
   #cover-risk .stab { font-size:11px; color:#b9b2a4; text-align:right; font-variant-numeric:tabular-nums; }
-  #cover-toolbar { display:flex; gap:8px; padding:8px 10px; align-items:center; }
+  #cover-toolbar { display:flex; gap:8px; padding:8px 10px; align-items:center; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  #cover-toolbar::-webkit-scrollbar { display:none; }
+  #cover-toolbar .tbtn { flex:none; }
   .tbtn {
     background:#1d1f26; border:1px solid rgba(255,255,255,0.16); color:#fff;
     border-radius:9px; padding:12px 16px; font-size:14px; font-weight:700; letter-spacing:1px;
@@ -45,6 +47,7 @@
     background:#0d0e13; border:1px solid rgba(255,255,255,0.16);
     border-radius:14px; box-shadow:0 8px 30px rgba(0,0,0,0.6);
     padding:14px; max-width:min(92vw,430px); max-height:70vh; overflow-y:auto;
+    -webkit-overflow-scrolling:touch; overscroll-behavior:contain;
   }
   #menu h3 { font-size:13px; letter-spacing:2px; color:#f5b942; margin-bottom:10px; }
   #menu .mclose { float:right; background:none; border:none; color:#888; font-size:20px; cursor:pointer; padding:4px 8px; }
@@ -52,7 +55,7 @@
     display:flex; justify-content:space-between; align-items:center; gap:10px;
     background:#1d1f26; border:1px solid rgba(255,255,255,0.1); border-radius:10px;
     padding:12px; margin-bottom:8px; cursor:pointer; width:100%; color:#fff; text-align:left;
-    font-size:14px;
+    font-size:14px; min-height:48px;
   }
   .mitem:active { background:#2b2e38; }
   .mitem:disabled { opacity:0.4; cursor:default; }
@@ -63,6 +66,7 @@
     width:min(86vw,320px); background:#0d0e13;
     border:1px solid rgba(245,185,66,0.4); border-radius:14px;
     box-shadow:0 8px 30px rgba(0,0,0,0.65); padding:16px;
+    max-height:82vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
   }
   #profile h2 { font-size:20px; margin-bottom:2px; }
   #profile .sub { color:#a09a8c; font-size:13px; margin-bottom:8px; }
@@ -82,9 +86,9 @@
   .toast.bad { border-color:rgba(224,82,82,0.6); color:#ffc9c9; }
   @keyframes tin { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:none;} }
   .tabs { display:flex; gap:6px; margin-bottom:10px; }
-  .tab { flex:1; padding:10px; text-align:center; background:#1d1f26; border:1px solid rgba(255,255,255,0.1); color:#cfc9ba; border-radius:8px; cursor:pointer; font-size:13px; font-weight:700; }
+  .tab { flex:1; padding:10px; min-height:44px; text-align:center; background:#1d1f26; border:1px solid rgba(255,255,255,0.1); color:#cfc9ba; border-radius:8px; cursor:pointer; font-size:13px; font-weight:700; }
   .tab.on { background:#f5b942; color:#191407; border-color:#f5b942; }
-  .rrow { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:#17181d; border-radius:8px; margin-bottom:6px; cursor:pointer; font-size:13px; }
+  .rrow { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; min-height:44px; background:#17181d; border-radius:8px; margin-bottom:6px; cursor:pointer; font-size:13px; }
   .rrow:active { background:#22232b; }
   .rrow .dot { width:10px; height:10px; border-radius:50%; background:#e8722a; margin-right:8px; flex:none; }
   .rrow .dot.guard { background:#5a7bd6; }
@@ -434,6 +438,7 @@ function makeInmate(blockIdx, cellIdx){
     path: [], targetZone: 'block' + b.name, spotTarget: null,
     state: 'idle',           // idle | moving | fight | riot | leaving
     face: rand(0, Math.PI*2), animT: rand(0,10),
+    latOff: rand(-14,14), speedMult: rand(0.85,1.15), dwellT: 0,  // natural-movement jitter
     fightWith: null, fightT: 0, subdueT: 0,
     solitaryT: 0, injuredT: 0,
     node: b.node,
@@ -455,6 +460,7 @@ function makeGuard(){
     path: [], node: 'gate',
     state: 'patrol',         // patrol | respond | subdue | down
     face: rand(0, Math.PI*2), animT: rand(0,10),
+    latOff: rand(-14,14), speedMult: rand(0.85,1.15), dwellT: 0,  // natural-movement jitter
     target: null, subdueT: 0, downT: 0,
     skin: pick(SKIN),
   };
@@ -516,12 +522,15 @@ function routeTo(e, nodeName, finalSpot){
 }
 function moveAlong(e, dtMin, speedPxMin){
   if (!e.path.length) return true;
-  let remaining = speedPxMin * dtMin;
+  // waypoint dwell — a tiny hesitation at each node desynchronizes groups
+  if (e.dwellT > 0){ e.dwellT -= dtMin; e.animT += dtMin; return false; }
+  let remaining = speedPxMin * dtMin * (e.speedMult || 1);
   while (remaining > 0 && e.path.length){
     const t = e.path[0];
     const d = dist(e.x, e.y, t[0], t[1]);
     if (d <= remaining){
       e.x = t[0]; e.y = t[1]; e.path.shift(); remaining -= d;
+      if (e.path.length) e.dwellT = rand(0.6, 2.4);  // sim-minutes ≈ 0.2–0.8 perceived sec at 1x (3 sim-min per real sec)
     } else {
       const a = angTo(e.x, e.y, t[0], t[1]);
       e.x += Math.cos(a) * remaining; e.y += Math.sin(a) * remaining;
@@ -1134,6 +1143,8 @@ function rr(ctx, x, y, w, h, r){
 
 function drawShadow(ctx, x, y){
   // clearly visible soft contact shadow, offset east/northeast (late-afternoon sun)
+  // fast path: pre-rendered radial-gradient stamp (no per-frame path work)
+  if (shadowSpr){ ctx.drawImage(shadowSpr, x-17, y-10, 48, 24); return; }
   ctx.fillStyle = 'rgba(0,0,0,0.16)';
   ctx.beginPath(); ctx.ellipse(x+7, y+2, 16, 7, 0, 0, Math.PI*2); ctx.fill();
   ctx.fillStyle = 'rgba(0,0,0,0.30)';
@@ -1145,7 +1156,8 @@ function drawShadow(ctx, x, y){
 // orange jumpsuit (or guard uniform) with warm key-light shading, simple
 // legs and arm hints, facing the travel direction.
 function drawFigure(ctx, e, now){
-  const moving = (e.path && e.path.length > 0) || e.state === 'fight' || e.state === 'riot' ||
+  const dwelling = e.dwellT > 0;
+  const moving = ((e.path && e.path.length > 0 && !dwelling)) || e.state === 'fight' || e.state === 'riot' ||
                  e.state === 'respond' || e.state === 'moving-patrol';
   const wob = moving ? Math.sin(e.animT * 9) : 0;                    // walk cycle
   const bob = moving ? Math.abs(Math.sin(e.animT * 9)) * -1.6
@@ -1154,10 +1166,20 @@ function drawFigure(ctx, e, now){
   const isGuard = e.kind === 'guard';
   const down = isGuard && e.downT > 0;
 
-  drawShadow(ctx, e.x, e.y);
+  // lateral offset: spread entities across the path width instead of
+  // single-filing the centerline. Perpendicular to facing, clamped to
+  // walkable ground so the drawn figure never lands on a roof or wall.
+  let ox = e.x, oy = e.y;
+  if (e.latOff){
+    const cx = e.x - Math.sin(e.face) * e.latOff;
+    const cy = e.y + Math.cos(e.face) * e.latOff;
+    if (isWalkable(cx, cy)){ ox = cx; oy = cy; }
+  }
+
+  drawShadow(ctx, ox, oy);
 
   ctx.save();
-  ctx.translate(e.x, e.y + bob * 0.4);
+  ctx.translate(ox, oy + bob * 0.4);
   if (down) ctx.rotate(Math.PI/2 * 0.9);
   const lean = moving ? 1.6 : 0.6;                                  // lean into travel
   const lx = fx * lean;
@@ -1181,12 +1203,17 @@ function drawFigure(ctx, e, now){
   const tx = lx, ty = -19;
   ctx.fillStyle = down ? '#6a6f7a' : uniform;
   rr(ctx, tx-5.5, ty, 11, 12, 4); ctx.fill();
-  const lg = ctx.createLinearGradient(tx-5.5, 0, tx+5.5, 0);
-  lg.addColorStop(0, 'rgba(255,205,150,0.40)');
-  lg.addColorStop(0.5, 'rgba(255,205,150,0)');
-  lg.addColorStop(1, 'rgba(38,22,58,0.30)');
-  ctx.fillStyle = lg;
-  rr(ctx, tx-5.5, ty, 11, 12, 4); ctx.fill();
+  // warm key-light / cool fill shading — fast path is a pre-rendered stamp,
+  // fallback builds the gradient (kept for headless/test environments)
+  if (torsoSpr){ ctx.drawImage(torsoSpr, tx-5.5, ty, 11, 12); }
+  else {
+    const lg = ctx.createLinearGradient(tx-5.5, 0, tx+5.5, 0);
+    lg.addColorStop(0, 'rgba(255,205,150,0.40)');
+    lg.addColorStop(0.5, 'rgba(255,205,150,0)');
+    lg.addColorStop(1, 'rgba(38,22,58,0.30)');
+    ctx.fillStyle = lg;
+    rr(ctx, tx-5.5, ty, 11, 12, 4); ctx.fill();
+  }
   // collar
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.fillRect(tx-2.2, ty+1, 4.4, 3);
@@ -1229,11 +1256,11 @@ function drawFigure(ctx, e, now){
   if (e.state === 'fight'){
     ctx.strokeStyle = 'rgba(255,70,70,' + (0.55 + 0.4*Math.sin(now*7)).toFixed(2) + ')';
     ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.arc(e.x, e.y - 12, 14, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(ox, oy - 12, 14, 0, Math.PI*2); ctx.stroke();
   }
   if (sim.selected === e.id){
     ctx.strokeStyle = '#f5b942'; ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.arc(e.x, e.y - 12, 17, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(ox, oy - 12, 17, 0, Math.PI*2); ctx.stroke();
   }
 }
 
@@ -1251,12 +1278,16 @@ function render(ctx, cw, ch, now){
   ctx.setTransform(1,0,0,1,0,0);
   ctx.fillStyle = '#07080b';
   ctx.fillRect(0, 0, cw, ch);
-  const scale = Math.min(cw / IMG_W, ch / IMG_H);
-  const iw = IMG_W * scale, ih = IMG_H * scale;
-  const ox = (cw - iw) / 2, oy = (ch - ih) / 2;
+  // camera: fit-scale * zoom, centered on (cam.cx, cam.cy) in image px.
+  // At zoom 1 the whole map fits exactly as before; zoom/pan only move from there.
+  const s0 = Math.min(cw / IMG_W, ch / IMG_H);
+  const scale = s0 * cam.zoom;
+  const ox = cw/2 - cam.cx*scale, oy = ch/2 - cam.cy*scale;
   ctx.setTransform(scale, 0, 0, scale, ox, oy);
 
-  if (typeof bgImg !== 'undefined' && bgImg && bgImg.complete && bgImg.naturalWidth){
+  if (typeof bgOff !== 'undefined' && bgOff){
+    ctx.drawImage(bgOff, 0, 0, IMG_W, IMG_H);   // pre-rendered: map + painted UI covers
+  } else if (typeof bgImg !== 'undefined' && bgImg && bgImg.complete && bgImg.naturalWidth){
     ctx.drawImage(bgImg, 0, 0, IMG_W, IMG_H);
   } else {
     ctx.fillStyle = '#5a6b46'; ctx.fillRect(0, 0, IMG_W, IMG_H);
@@ -1264,56 +1295,75 @@ function render(ctx, cw, ch, now){
   }
 
   // painter's algorithm: draw by ground Y so nearer figures overlap farther ones
-  const list = [];
-  for (const p of sim.inmates) list.push(p);
-  for (const g of sim.guards) list.push(g);
-  list.sort((a,b) => a.y - b.y);
-  const order = [];
-  for (const e of list){ drawFigure(ctx, e, now); order.push(e.y); }
-  __lockdown.lastDraw = order;
+  // (drawList is reused — no per-frame allocation in the hot loop)
+  drawList.length = 0;
+  for (const p of sim.inmates) drawList.push(p);
+  for (const g of sim.guards) drawList.push(g);
+  drawList.sort((a,b) => a.y - b.y);
+  const order = __lockdown.lastDraw || (__lockdown.lastDraw = []);
+  order.length = 0;
+  for (const e of drawList){ drawFigure(ctx, e, now); order.push(e.y); }
 
   const hour = sim.minutes / 60;
   const night = (hour >= 20 || hour < 5);
   if (night){
     // tower spotlight cones sweeping the yard
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < TOWERS.length; i++){
-      const tx = TOWERS[i][0], ty = TOWERS[i][1];
-      const sweep = Math.sin(now * 0.5 + i * 2.4) * 0.35;
-      const dirx = (960 - tx), diry = (420 - ty);
-      const len = Math.sqrt(dirx*dirx + diry*diry);
-      const nx = dirx/len, ny = diry/len;
-      const px = -ny, py = nx;
-      const spread = 130 + sweep * 160;
-      const grad = ctx.createRadialGradient(tx, ty, 10, tx, ty, 420);
-      grad.addColorStop(0, 'rgba(255,240,200,0.20)');
-      grad.addColorStop(1, 'rgba(255,240,200,0)');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(tx + nx*420 + px*spread, ty + ny*420 + py*spread);
-      ctx.lineTo(tx + nx*420 - px*spread, ty + ny*420 - py*spread);
-      ctx.closePath(); ctx.fill();
+    if (typeof coneSpr !== 'undefined' && coneSpr){
+      // fast path: pre-rendered cone stamp, rotated per tower ('lighter' blend)
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < TOWERS.length; i++){
+        const tx = TOWERS[i][0], ty = TOWERS[i][1];
+        const sweep = Math.sin(now * 0.5 + i * 2.4) * 0.18;
+        const ang = Math.atan2(420 - ty, 960 - tx) - Math.PI/2 + sweep;
+        ctx.save();
+        ctx.translate(tx, ty); ctx.rotate(ang);
+        ctx.drawImage(coneSpr, -240, 0, 480, 480);
+        ctx.restore();
+      }
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < TOWERS.length; i++){
+        const tx = TOWERS[i][0], ty = TOWERS[i][1];
+        const sweep = Math.sin(now * 0.5 + i * 2.4) * 0.35;
+        const dirx = (960 - tx), diry = (420 - ty);
+        const len = Math.sqrt(dirx*dirx + diry*diry);
+        const nx = dirx/len, ny = diry/len;
+        const px = -ny, py = nx;
+        const spread = 130 + sweep * 160;
+        const grad = ctx.createRadialGradient(tx, ty, 10, tx, ty, 420);
+        grad.addColorStop(0, 'rgba(255,240,200,0.20)');
+        grad.addColorStop(1, 'rgba(255,240,200,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(tx + nx*420 + px*spread, ty + ny*420 + py*spread);
+        ctx.lineTo(tx + nx*420 - px*spread, ty + ny*420 - py*spread);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
     }
-    ctx.restore();
   }
 
   // time-of-day grade
   ctx.fillStyle = tintFor(hour);
   ctx.fillRect(0, 0, IMG_W, IMG_H);
 
-  // vignette
-  const vg = ctx.createRadialGradient(IMG_W/2, IMG_H/2, IMG_H*0.35, IMG_W/2, IMG_H/2, IMG_H*0.75);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.34)');
-  ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, IMG_W, IMG_H);
+  // vignette — pre-rendered per resize, one blit (screen space, so zoom/pan never move it)
   ctx.setTransform(1,0,0,1,0,0);
-  return { ox, oy, scale, iw, ih };
+  if (typeof vigOff !== 'undefined' && vigOff) ctx.drawImage(vigOff, 0, 0, cw, ch);
+  return { ox, oy, scale, iw: IMG_W*scale, ih: IMG_H*scale };
 }
 __lockdown.render = render;
 var bgImg = null;   // assigned by the browser UI below
+var bgOff = null;   // pre-rendered static background: map + painted-over baked UI panels
+var shadowSpr = null, torsoSpr = null, coneSpr = null, vigOff = null; // perf sprites (built in browser only)
+// camera in image px; the browser UI overrides zoom/center (mobile defaults zoomed in)
+var cam = { zoom: 1, cx: IMG_W/2, cy: IMG_H/2 };
+__lockdown.cam = cam;   // live camera object — mutated by the browser UI
+var drawList = [];  // reused per-frame entity list — no per-frame allocation in the hot loop
 
 // frame-loop style advancement (respects pause + speed), usable in tests too
 __lockdown.advance = function(dtRealSec){
@@ -1342,13 +1392,46 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
     '.tbtn{padding:10px 12px;font-size:clamp(10px,1.5vw,14px);min-height:44px}';
   document.head.appendChild(st);
 
-  if (typeof Image !== 'undefined'){ bgImg = new Image(); bgImg.src = 'assets/prison-bg.webp'; }
-
-  function imgRect(){
-    const cw = canvas.width, ch = canvas.height;
-    const scale = Math.min(cw/IMG_W, ch/IMG_H);
+  // ---- camera + display ----
+  // Backing store capped at DPR 2 (cheap on mobile GPUs); all render math in device px.
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  let viewW = window.innerWidth, viewH = window.innerHeight, baseScale = 1;
+  function isMobileLayout(){ return viewW < 760; }
+  function clampCam(){
+    cam.zoom = clamp(cam.zoom, 1, 4);
+    const s = baseScale * cam.zoom;
+    const visW = (viewW*DPR) / s, visH = (viewH*DPR) / s;  // visible image px
+    const m = 80;  // overscroll margin — the prison can never be lost off-screen
+    if (visW >= IMG_W) cam.cx = IMG_W/2;
+    else cam.cx = clamp(cam.cx, visW/2 - m, IMG_W - visW/2 + m);
+    if (visH >= IMG_H) cam.cy = IMG_H/2;
+    else cam.cy = clamp(cam.cy, visH/2 - m, IMG_H - visH/2 + m);
+  }
+  function defaultView(){
+    if (isMobileLayout()){
+      // phone: fill the screen (fit map height), centered on the active prison area —
+      // buildings and figures readable immediately, no zooming required
+      // (device px throughout: canvas.height/baseScale are both in device px)
+      cam.zoom = clamp((canvas.height / IMG_H) / baseScale, 1, 4);
+      cam.cx = 975; cam.cy = 640;
+    } else {
+      cam.zoom = 1; cam.cx = IMG_W/2; cam.cy = IMG_H/2;   // desktop: full map, as before
+    }
+    clampCam();
+  }
+  // CSS px -> image px (for tap-select under any zoom/pan)
+  function screenToWorld(px, py){
+    const s = baseScale * cam.zoom;
+    return {
+      x: (px*DPR - (viewW*DPR/2 - cam.cx*s)) / s,
+      y: (py*DPR - (viewH*DPR/2 - cam.cy*s)) / s
+    };
+  }
+  // CSS-px fit rect of the whole map (desktop UI layout only)
+  function imgRectCss(){
+    const scale = Math.min(viewW/IMG_W, viewH/IMG_H);
     const iw = IMG_W*scale, ih = IMG_H*scale;
-    return { ox:(cw-iw)/2, oy:(ch-ih)/2, scale, iw, ih };
+    return { ox:(viewW-iw)/2, oy:(viewH-ih)/2, scale, iw, ih };
   }
 
   // baked-in UI spots, measured in image px @1920x1280: [x, y, w, h]
@@ -1358,28 +1441,131 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
     risk:    [1586,16,317,123],
     toolbar: [19,1216,700,53],
   };
+
+  // ---- pre-rendered assets (built once; blitted per frame — the mobile perf win) ----
+  function rrPath(c, x, y, w, h, rad){
+    c.beginPath();
+    c.moveTo(x+rad, y);
+    c.arcTo(x+w, y, x+w, y+h, rad); c.arcTo(x+w, y+h, x, y+h, rad);
+    c.arcTo(x, y+h, x, y, rad);     c.arcTo(x, y, x+w, y, rad);
+    c.closePath();
+  }
+  // Static background: the map with the mockup's baked-in fake UI panels painted
+  // over, so the live HTML covers (and any zoom/pan) never reveal them.
+  function buildBackground(){
+    if (!bgImg || !bgImg.naturalWidth || bgOff) return;
+    try {
+      const c = document.createElement('canvas');
+      c.width = IMG_W; c.height = IMG_H;
+      const b = c.getContext('2d');
+      b.drawImage(bgImg, 0, 0, IMG_W, IMG_H);
+      b.fillStyle = '#0b0c10';   // same dark as the live covers — invisible seam on desktop
+      for (const k in COVERS){
+        const r = COVERS[k];
+        rrPath(b, r[0]-8, r[1]-8, r[2]+16, r[3]+16, 16);
+        b.fill();
+      }
+      bgOff = c;
+    } catch (e) {}
+  }
+  // One-time sprite stamps: soft shadow, torso shading, night spotlight cone.
+  // These replace per-frame createRadialGradient/createLinearGradient + path work.
+  function buildSprites(){
+    try {
+      let c = document.createElement('canvas'); c.width = 48; c.height = 24;
+      let s = c.getContext('2d');
+      let g = s.createRadialGradient(24, 12, 2, 24, 12, 22);
+      g.addColorStop(0, 'rgba(0,0,0,0.30)');
+      g.addColorStop(0.55, 'rgba(0,0,0,0.16)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      s.fillStyle = g;
+      s.save(); s.translate(24, 12); s.scale(1, 0.5);
+      s.beginPath(); s.arc(0, 0, 22, 0, Math.PI*2); s.fill(); s.restore();
+      shadowSpr = c;
+      c = document.createElement('canvas'); c.width = 22; c.height = 24;
+      s = c.getContext('2d');
+      g = s.createLinearGradient(0, 0, 22, 0);
+      g.addColorStop(0, 'rgba(255,205,150,0.40)');
+      g.addColorStop(0.5, 'rgba(255,205,150,0)');
+      g.addColorStop(1, 'rgba(38,22,58,0.30)');
+      s.fillStyle = g;
+      rrPath(s, 0, 0, 22, 24, 8); s.fill();
+      torsoSpr = c;
+      c = document.createElement('canvas'); c.width = 480; c.height = 480;
+      s = c.getContext('2d');
+      g = s.createRadialGradient(240, 0, 10, 240, 0, 470);
+      g.addColorStop(0, 'rgba(255,240,200,0.20)');
+      g.addColorStop(1, 'rgba(255,240,200,0)');
+      s.fillStyle = g;
+      s.beginPath(); s.moveTo(240, 0); s.lineTo(50, 470); s.lineTo(430, 470); s.closePath(); s.fill();
+      coneSpr = c;
+    } catch (e) {}
+  }
+  // Screen-space vignette, rebuilt on resize (zoom/pan never move it)
+  function buildVignette(){
+    try {
+      const c = document.createElement('canvas');
+      c.width = Math.max(2, canvas.width); c.height = Math.max(2, canvas.height);
+      const v = c.getContext('2d');
+      const g = v.createRadialGradient(c.width/2, c.height/2, Math.min(c.width,c.height)*0.32,
+                                       c.width/2, c.height/2, Math.max(c.width,c.height)*0.62);
+      g.addColorStop(0, 'rgba(0,0,0,0)');
+      g.addColorStop(1, 'rgba(0,0,0,0.34)');
+      v.fillStyle = g; v.fillRect(0, 0, c.width, c.height);
+      vigOff = c;
+    } catch (e) {}
+  }
+  if (typeof Image !== 'undefined'){
+    bgImg = new Image();
+    bgImg.onload = function(){ buildBackground(); };
+    bgImg.src = 'assets/prison-bg.webp';
+    if (bgImg.complete && bgImg.naturalWidth) buildBackground();
+  }
   function layoutUI(){
-    const r = imgRect();
-    const px = v => v/IMG_W*r.iw, py = v => v/IMG_H*r.ih;
     const s = document.getElementById('cover-stats');
-    s.style.left = (r.ox + px(COVERS.stats[0]))+'px'; s.style.top = (r.oy + py(COVERS.stats[1]))+'px';
-    s.style.width = px(COVERS.stats[2])+'px'; s.style.minHeight = py(COVERS.stats[3])+'px';
     const c = document.getElementById('cover-clock');
-    c.style.left = (r.ox + px(COVERS.clock[0]))+'px';
+    const k = document.getElementById('cover-risk');
+    const t = document.getElementById('cover-toolbar');
+    if (isMobileLayout()){
+      // phone: fixed HUD — stats top-left, risk top-right, clock full-width below,
+      // toolbar bottom, horizontally scrollable. Map zooms/pans underneath.
+      s.style.left='8px'; s.style.top='8px'; s.style.right='auto'; s.style.width='auto'; s.style.minHeight='0';
+      k.style.left='auto'; k.style.right='8px'; k.style.top='8px'; k.style.width='auto'; k.style.minHeight='0';
+      c.style.left='8px'; c.style.right='8px'; c.style.top='118px'; c.style.width='auto';
+      c.style.transform='none'; c.style.textAlign='center';
+      t.style.left='8px'; t.style.right='8px'; t.style.bottom='8px'; t.style.minWidth='0';
+      positionMenu();
+      return;
+    }
+    // desktop: covers sit exactly over the baked-in UI spots, as before
+    const r = imgRectCss();
+    const px = v => v/IMG_W*r.iw, py = v => v/IMG_H*r.ih;
+    s.style.left = (r.ox + px(COVERS.stats[0]))+'px'; s.style.top = (r.oy + py(COVERS.stats[1]))+'px';
+    s.style.right='auto'; s.style.width = px(COVERS.stats[2])+'px'; s.style.minHeight = py(COVERS.stats[3])+'px';
+    c.style.left = (r.ox + px(COVERS.clock[0]))+'px'; c.style.right='auto';
     c.style.top = (r.oy + py(COVERS.clock[1]))+'px';
     c.style.width = px(COVERS.clock[2])+'px'; c.style.minHeight = py(COVERS.clock[3])+'px';
-    c.style.transform = 'none';
-    const k = document.getElementById('cover-risk');
-    k.style.right = (canvas.width - (r.ox + px(COVERS.risk[0]+COVERS.risk[2])))+'px';
+    c.style.transform = 'none'; c.style.textAlign='';
+    k.style.left='auto';
+    k.style.right = (viewW - (r.ox + px(COVERS.risk[0]+COVERS.risk[2])))+'px';
     k.style.top = (r.oy + py(COVERS.risk[1]))+'px';
     k.style.width = px(COVERS.risk[2])+'px'; k.style.minHeight = py(COVERS.risk[3])+'px';
-    const t = document.getElementById('cover-toolbar');
-    t.style.left = (r.ox + px(COVERS.toolbar[0]))+'px';
-    t.style.bottom = (canvas.height - (r.oy + py(COVERS.toolbar[1]+COVERS.toolbar[3])))+'px';
+    t.style.left = (r.ox + px(COVERS.toolbar[0]))+'px'; t.style.right='auto';
+    t.style.bottom = (viewH - (r.oy + py(COVERS.toolbar[1]+COVERS.toolbar[3])))+'px';
     t.style.minWidth = px(561)+'px';
     positionMenu();
   }
-  function sizeCanvas(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; layoutUI(); }
+  function sizeCanvas(){
+    viewW = window.innerWidth; viewH = window.innerHeight;
+    canvas.width = Math.max(2, Math.round(viewW * DPR));
+    canvas.height = Math.max(2, Math.round(viewH * DPR));
+    canvas.style.width = viewW + 'px';
+    canvas.style.height = viewH + 'px';
+    baseScale = Math.min(canvas.width / IMG_W, canvas.height / IMG_H);
+    clampCam();
+    buildVignette();
+    layoutUI();
+  }
   window.addEventListener('resize', sizeCanvas);
 
   // ---- toasts (override the no-op) ----
@@ -1418,9 +1604,14 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
   const menuEl = document.getElementById('menu');
   let menuOpen = null;
   function positionMenu(){
-    const r = imgRect();
-    menuEl.style.left = '12px';
-    menuEl.style.bottom = (canvas.height - (r.oy + (COVERS.toolbar[1]+COVERS.toolbar[3])/IMG_H*r.ih) + 12)+'px';
+    if (isMobileLayout()){
+      menuEl.style.left='8px'; menuEl.style.right='8px';
+      menuEl.style.bottom='78px'; menuEl.style.maxWidth='none';
+      return;
+    }
+    const r = imgRectCss();
+    menuEl.style.left = '12px'; menuEl.style.right='auto'; menuEl.style.maxWidth='';
+    menuEl.style.bottom = (viewH - (r.oy + (COVERS.toolbar[1]+COVERS.toolbar[3])/IMG_H*r.ih) + 12)+'px';
   }
   function closeMenu(){ menuEl.style.display = 'none'; menuOpen = null; }
   function mItem(label, sub, cost, fn, disabled){
@@ -1571,17 +1762,99 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
   document.getElementById('btn-reports').onclick = function(){ openMenu('reports'); };
   document.getElementById('btn-actions').onclick = function(){ openMenu('actions'); };
 
-  // ---- tap to select ----
-  canvas.addEventListener('pointerdown', function(ev){
-    const r = imgRect();
-    const x = (ev.clientX - r.ox)/r.scale, y = (ev.clientY - r.oy)/r.scale;
-    const p = inmateAt(x, y);
+  // ---- map gestures: tap-select, drag-pan, pinch-zoom, double-tap reset ----
+  // UI panels are HTML overlays and stay fixed while the map moves underneath.
+  const pointers = new Map();
+  let panState = null;    // {id, sx, sy, lx, ly, moved, t0}
+  let pinchState = null;  // {d0, mx, my, zoom0}
+  let lastTapT = 0, lastTapX = 0, lastTapY = 0;
+  function canvasPos(ev){
+    const r = canvas.getBoundingClientRect();
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top };   // CSS px
+  }
+  function selectAt(w){
+    const p = inmateAt(w.x, w.y);
     if (p){ openProfile(p); return; }
     let g = null, bd = 20;
-    for (const gg of sim.guards){ const d = dist(x, y, gg.x, gg.y-12); if (d < bd){ bd = d; g = gg; } }
+    for (const gg of sim.guards){ const d = dist(w.x, w.y, gg.x, gg.y-12); if (d < bd){ bd = d; g = gg; } }
     if (g){ sim.selected = g.id; toast(g.name + ' — on duty.'); closeProfile(); }
     else { sim.selected = null; closeProfile(); }
+  }
+  function handleTap(ev){
+    const p = canvasPos(ev);
+    const t = performance.now();
+    if (t - lastTapT < 350 && Math.hypot(p.x-lastTapX, p.y-lastTapY) < 30){
+      lastTapT = 0;   // double-tap: reset to the default view
+      defaultView();
+      return;
+    }
+    lastTapT = t; lastTapX = p.x; lastTapY = p.y;
+    selectAt(screenToWorld(p.x, p.y));
+  }
+  canvas.addEventListener('pointerdown', function(ev){
+    try { canvas.setPointerCapture(ev.pointerId); } catch (e) {}
+    pointers.set(ev.pointerId, canvasPos(ev));
+    if (pointers.size === 1){
+      const p = canvasPos(ev);
+      panState = { id: ev.pointerId, sx: p.x, sy: p.y, lx: p.x, ly: p.y, moved: false, t0: performance.now() };
+    } else if (pointers.size === 2){
+      const pts = Array.from(pointers.values());
+      pinchState = {
+        d0: Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y),
+        mx: (pts[0].x+pts[1].x)/2, my: (pts[0].y+pts[1].y)/2,
+        zoom0: cam.zoom
+      };
+      panState = null;   // pinch cancels any tap
+    }
   });
+  canvas.addEventListener('pointermove', function(ev){
+    if (!pointers.has(ev.pointerId)) return;
+    const p = canvasPos(ev);
+    pointers.set(ev.pointerId, p);
+    if (pinchState && pointers.size >= 2){
+      const pts = Array.from(pointers.values());
+      const d = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+      const mx = (pts[0].x+pts[1].x)/2, my = (pts[0].y+pts[1].y)/2;
+      if (pinchState.d0 > 4 && d > 4){
+        const nz = clamp(pinchState.zoom0 * d/pinchState.d0, 1, 4);
+        // keep the image point under the gesture midpoint anchored there
+        const s0 = baseScale * cam.zoom;
+        const wx = cam.cx + (pinchState.mx*DPR - viewW*DPR/2)/s0;
+        const wy = cam.cy + (pinchState.my*DPR - viewH*DPR/2)/s0;
+        cam.zoom = nz;
+        const s1 = baseScale * nz;
+        cam.cx = wx - (mx*DPR - viewW*DPR/2)/s1;
+        cam.cy = wy - (my*DPR - viewH*DPR/2)/s1;
+        clampCam();
+      }
+      pinchState.d0 = d; pinchState.mx = mx; pinchState.my = my; pinchState.zoom0 = cam.zoom;
+    } else if (panState && ev.pointerId === panState.id){
+      if (!panState.moved && Math.hypot(p.x-panState.sx, p.y-panState.sy) > 10) panState.moved = true;
+      if (panState.moved){
+        const s = baseScale * cam.zoom;
+        cam.cx -= (p.x-panState.lx)*DPR/s;
+        cam.cy -= (p.y-panState.ly)*DPR/s;
+        clampCam();
+      }
+      panState.lx = p.x; panState.ly = p.y;
+    }
+  });
+  function endPointer(ev){
+    const isTap = panState && !panState.moved && (performance.now()-panState.t0) < 400;
+    pointers.delete(ev.pointerId);
+    if (pinchState && pointers.size < 2) pinchState = null;
+    if (panState && ev.pointerId === panState.id){
+      if (isTap) handleTap(ev);
+      panState = null;
+    }
+    // one finger left after a pinch: anchor a fresh pan so nothing jumps
+    if (pointers.size === 1 && !panState){
+      const id = Array.from(pointers.keys())[0], p = pointers.get(id);
+      panState = { id: id, sx: p.x, sy: p.y, lx: p.x, ly: p.y, moved: true, t0: performance.now() };
+    }
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
 
   // ---- boot ----
   newGame();
@@ -1589,7 +1862,9 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
     const sp = parseInt(new URLSearchParams(location.search).get('speed') || '', 10);
     if (sp === 2 || sp === 4) sim.speed = sp;
   } catch (hq) {}
+  buildSprites();
   sizeCanvas();
+  defaultView();   // desktop: full map; phone: zoomed-in, screen-filling
   updateHUD();
   let last = performance.now(), acc = 0, frames = 0;
   function frame(now){
@@ -1612,6 +1887,11 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
       while (a >= 1 && steps < 200000){ tick(1); a -= 1; steps++; }
     }
     return steps;
+  };
+  // test hook: camera/view state for gesture + layout verification
+  __lockdown.view = function(){
+    return { zoom: cam.zoom, cx: cam.cx, cy: cam.cy,
+             baseScale: baseScale, dpr: DPR, viewW: viewW, viewH: viewH };
   };
 })();
 }
