@@ -242,6 +242,12 @@ function cellSpot(b, i){
   return [b.x + m + (c + 0.5) * (b.w - m*2) / cols,
           b.y + m + (r + 0.5) * (b.h - m*2) / rows];
 }
+function cellRect(b, i){
+  const cols = 6, rows = 10, m = 20;
+  const c = i % cols, r = Math.floor(i / cols) % rows;
+  const cw = (b.w - m*2) / cols, ch = (b.h - m*2) / rows;
+  return { x: b.x + m + c*cw, y: b.y + m + r*ch, w: cw, h: ch };
+}
 
 // Walkable waypoint graph — nodes sit on open ground only (never on roofs).
 // Routes between plaza and yard go AROUND the kitchen building (east/west),
@@ -308,7 +314,9 @@ function nearestNode(x, y){
 // Is the straight line between two points free of roofs / non-walkable ground?
 function segmentClear(x1, y1, x2, y2){
   const d = dist(x1, y1, x2, y2);
-  const steps = Math.max(1, Math.ceil(d / 12));
+  // 4px sampling: the roof veto pad is 2px, and 12px steps could straddle a
+  // grazing pad edge. 4px keeps the miss window below the pad width.
+  const steps = Math.max(1, Math.ceil(d / 4));
   for (let i = 1; i <= steps; i++){
     const t = i / steps;
     if (!isWalkable(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t)) return false;
@@ -439,6 +447,8 @@ function makeInmate(blockIdx, cellIdx){
     gangId: null, friends: [], bond: {}, beef: {},
     talkWith: null, talkT: 0, talkCd: rand(0,10), stroll: false,  // visible chats + wander
     contra: null,
+    cell: { stash: [], sheetOnBars: false, bedDummy: false, sheetRemoved: false },  // personal cell (Escapists-style)
+    escaped: false, sneaking: false,
     block: blockIdx, cellIdx,
     x: spot[0], y: spot[1], px: spot[0], py: spot[1],
     path: [], targetZone: 'block' + b.name, spotTarget: null,
@@ -492,6 +502,7 @@ function newGame(){
     lockdown: false,
     fence: 1, cameras: 0, programs: false,
     shakedownCd: 0, shakeRecent: 0,
+    cellSearchCd: 0, nightAlarm: false,
     recentFights: 0,
     log: [],
     selected: null,
@@ -703,6 +714,7 @@ function endTalk(p, completed){
 // frequent chat initiation (every 5 ticks) — separate from the 20-tick
 // beef/gang/contraband pass so fight balance doesn't change
 function tickChats(){
+  if (sim.phase === 'SLEEP') return;   // lights out: no new chats at night
   const ps = sim.inmates;
   for (let i = 0; i < ps.length; i++){
     const a = ps[i];
@@ -779,23 +791,158 @@ function tickSocial(){
   const yg = Object.keys(yardGangs).length;
   if (yg >= 2) tensionDelta += 0.0016 * yg;
   sim.gangTension = clamp(sim.gangTension + tensionDelta, 0, 1);
-  // contraband circulation
+  // contraband circulation — pocketed in the workshop, traded in the yard.
+  // carried items ride on p.contra (shakedown finds these); sneaky inmates also
+  // feed their desk stash (only a cell search finds those)
   for (const p of sim.inmates){
-    if (p.contra || p.state === 'leaving') continue;
+    if (p.state === 'leaving' || p.solitaryT > 0) continue;
     if (p.targetZone === 'yard' || p.targetZone === 'workshop'){
       const mod = (1 - 0.30*sim.cameras) * (sim.fence >= 2 ? 0.7 : 1);
-      if (Math.random() < 0.0022 * mod){
-        p.contra = Math.random() < 0.5 ? 'shank' : 'phone';
+      const sneaky = p.traits.includes('sneaky');
+      if (Math.random() < 0.0022 * mod * (sneaky ? 1.6 : 1)){
+        const item = pick(CONTRABAND);
+        if (!p.contra) p.contra = item;
+        else if (sneaky && p.cell.stash.length < 4) p.cell.stash.push(item);
       }
     }
   }
 }
 
 // ============================================================
+// ESCAPISTS SYSTEMS — personal cells, contraband stashes, deception, night checks
+// ============================================================
+const CONTRABAND = ['shank', 'phone', 'tools', 'duct tape', 'key mold', 'timber'];
+
+// at lights-out, carried contraband goes into the desk drawer (Escapists-accurate:
+// a general shakedown only finds what you're CARRYING; the desk needs a cell search)
+function stashContra(p){
+  if (p.contra){
+    if (p.cell.stash.length < 6) p.cell.stash.push(p.contra);
+    p.contra = null;
+  }
+}
+
+// sneaky inmates live Escapists-style night lives: strip the sheet, craft a bed
+// dummy (duct tape + sheet), hang sheets over the bars, sneak out for night business
+function tickDeception(){
+  for (const p of sim.inmates){
+    if (p.state === 'leaving' || p.solitaryT > 0) continue;
+    const c = p.cell;
+    const sneaky = p.traits.includes('sneaky');
+    if (!sneaky) continue;
+    // strip the sheet -> bed dummy (duct tape) OR sheet over the bars (one sheet per bed)
+    if (!c.sheetRemoved && Math.random() < 0.20){
+      c.sheetRemoved = true;
+      const di = c.stash.indexOf('duct tape');
+      if (di >= 0 && Math.random() < 0.6){
+        c.stash.splice(di, 1);
+        c.bedDummy = true;
+      } else {
+        c.sheetOnBars = true;
+      }
+    }
+    // sneak out for night business (only if there's something to hide behind)
+    if (!p.sneaking && !c.bedDummy && !c.sheetOnBars && Math.random() < 0.008 &&
+        (c.stash.length > 0 || p.contra)){
+      const spot = Math.random() < 0.5 ? yardSpot() : workshopStation(p.id);
+      const node = nearestNode(spot[0], spot[1]);
+      const np = NODES[node];
+      // walkability-guard the final leg: never plot a path across a roof
+      if (isWalkable(spot[0], spot[1]) && segmentClear(np[0], np[1], spot[0], spot[1])){
+        p.sneaking = true; p.escaped = true;
+        routeTo(p, node, spot);
+        p.state = 'moving';
+      }
+    }
+  }
+}
+
+// guard night checks: every cell must read occupied. A bed dummy fools the check;
+// a sheet over the bars means guards can't see in. An empty readable cell = alarm.
+function tickNightChecks(){
+  for (const p of sim.inmates){
+    if (p.state === 'leaving' || p.solitaryT > 0) continue;
+    const b = BLOCKS[p.block], s = cellSpot(b, p.cellIdx);
+    const inCell = dist(p.x, p.y, s[0], s[1]) < 60;
+    if (inCell){ p.escaped = false; p.sneaking = false; continue; }
+    // en route home counts as compliant — no false alarms for slow walkers
+    // (but sneaking inmates are never compliant, even mid-stride)
+    if (!p.sneaking && p.targetZone === 'block' + b.name && (p.state === 'moving' || p.state === 'idle')) continue;
+    if (p.cell.bedDummy){
+      // dummy discovery: small chance per check, higher if the inmate has enemies
+      let beefy = false;
+      for (const k of Object.keys(p.beef)) if ((p.beef[k]||0) > 2){ beefy = true; break; }
+      if (Math.random() < 0.015 + (beefy ? 0.02 : 0)){
+        p.cell.bedDummy = false;
+        p.solitaryT = 2880; p.state = 'idle'; p.path = []; p.escaped = false; p.sneaking = false;
+        p.x = s[0]; p.y = s[1]; p.px = s[0]; p.py = s[1];
+        log('Night check: the "sleeper" in ' + p.name + "'s bed was a dummy made of sheets — 48h solitary.", 'bad');
+        sim.gangTension = clamp(sim.gangTension + 0.05, 0, 1);
+      }
+      continue;
+    }
+    if (p.cell.sheetOnBars) continue;   // guards can't see into a sheeted cell
+    // readable empty cell — sound the alarm (once per night)
+    if (!sim.nightAlarm){
+      sim.nightAlarm = true;
+      sim.lockdown = true;
+      log('Night check: ' + p.name + "'s cell is EMPTY — lockdown, guards hunting.", 'bad');
+      sim.gangTension = clamp(sim.gangTension + 0.05, 0, 1);
+    }
+    p.escaped = true;
+  }
+  // guards hunt escapees
+  for (const g of sim.guards){
+    if (g.state !== 'patrol' && g.state !== 'moving-patrol' && g.state !== 'search') continue;
+    const esc = sim.inmates.find(p => p.escaped && p.state !== 'leaving' && p.solitaryT <= 0);
+    if (esc){
+      endSearch(g);
+      g.state = 'respond'; g.target = esc;
+      routeTo(g, nearestNode(esc.x, esc.y), [esc.x, esc.y]);
+    }
+  }
+}
+
+function captureEscapee(t){
+  t.escaped = false; t.sneaking = false;
+  t.solitaryT = 2880; t.state = 'idle'; t.path = []; t.fightWith = null;
+  endTalk(t, false);
+  const b = BLOCKS[t.block], s = cellSpot(b, t.cellIdx);
+  t.x = s[0]; t.y = s[1]; t.px = s[0]; t.py = s[1];
+  log('Guards dragged ' + t.name + ' out of the night shadows — 48h solitary.', 'bad');
+}
+
+// a guard finished searching a cell: tear down sheets, confiscate the stash
+function resolveCellSearch(p){
+  const c = p.cell;
+  if (c.sheetOnBars){
+    c.sheetOnBars = false;
+    log('Guards tore the sheet off ' + p.name + "'s cell bars.", 'info');
+  }
+  if (c.stash.length){
+    const items = c.stash.splice(0).join(', ');
+    p.solitaryT = 1440; p.state = 'idle'; p.path = []; p.fightWith = null;
+    endTalk(p, false);
+    const b = BLOCKS[p.block], s = cellSpot(b, p.cellIdx);
+    p.x = s[0]; p.y = s[1]; p.px = s[0]; p.py = s[1];
+    log('Cell search: found ' + items + ' in ' + p.name + "'s desk — 24h solitary.", 'bad');
+  } else {
+    log('Cell search: ' + p.name + "'s cell came up clean.", 'dim');
+  }
+}
+
+// release a guard from search duty back to patrol
+function endSearch(g){
+  if (g.state === 'search'){ g.state = 'patrol'; g.searchJob = null; g.path = []; }
+}
+
+// ============================================================
 // FIGHTS & GUARDS
 // ============================================================
 function tickFights(dt){
-  // spark new fights
+  // spark new fights (never during SLEEP — night sneak-outs are stealthy;
+  // a night brawl would also strand guards in off-path spots)
+  if (sim.phase !== 'SLEEP'){
   for (const a of sim.inmates){
     if (a.state !== 'idle' && a.state !== 'moving' && a.state !== 'talking') continue;
     if (a.fightT > 0 || a.solitaryT > 0) continue;
@@ -806,13 +953,15 @@ function tickFights(dt){
       if (dist(a.x,a.y,b.x,b.y) > 90) continue;
       const aggr = (a.traits.includes('aggressive')?1:0) + (b.traits.includes('aggressive')?1:0);
       let chance = 0.030 + 0.05*aggr + 0.08*sim.gangTension + 0.05*(1-moodOf(a));
-      if (a.contra === 'shank' || b.contra === 'shank') chance += 0.06;
+      if (a.contra === 'shank' || b.contra === 'shank' ||
+          a.cell.stash.includes('shank') || b.cell.stash.includes('shank')) chance += 0.06;
       chance *= (1 - 0.15*sim.cameras);
       if (Math.random() < chance * dt / 10){
         startFight(a, b);
         break;
       }
     }
+  }
   }
   // active fights
   for (const a of sim.inmates){
@@ -870,13 +1019,32 @@ function tickFights(dt){
       }
     } else if (g.state === 'respond'){
       const t = g.target;
-      const valid = t && ((t.kind === 'inmate' && (t.state === 'fight' || t.state === 'riot')) || t.kind === 'guard');
+      const valid = t && ((t.kind === 'inmate' && (t.state === 'fight' || t.state === 'riot' || t.escaped)) || t.kind === 'guard');
       if (!valid){ g.state = 'patrol'; g.path = []; g.target = null; continue; }
       // re-aim final leg at the moving target
       if (g.path.length <= 1) routeTo(g, nearestNode(t.x, t.y), [t.x, t.y]);
       moveAlong(g, dt, 120);
       if (dist(g.x, g.y, t.x, t.y) < 46){
+        if (t.escaped){ captureEscapee(t); g.state = 'patrol'; g.target = null; g.path = []; continue; }
         g.state = 'subdue'; g.subdueT = 4; g.path = [];
+      }
+    } else if (g.state === 'search'){
+      const job = g.searchJob;
+      const p = job && sim.inmates.includes(job.inmate) ? job.inmate : null;
+      if (!p){ endSearch(g); continue; }
+      const b = BLOCKS[p.block], s = cellSpot(b, p.cellIdx);
+      if (job.stage === 'go'){
+        if (dist(g.x, g.y, s[0], s[1]) < 42){
+          job.stage = 'searching';
+          job.t = p.cell.sheetOnBars ? 14 : 7;   // sheet over the bars slows the search
+          g.path = [];
+        } else {
+          if (!g.path.length) routeTo(g, p.node, [s[0], s[1]]);
+          moveAlong(g, dt, 110);
+        }
+      } else {
+        job.t -= dt;
+        if (job.t <= 0){ resolveCellSearch(p); endSearch(g); }
       }
     } else if (g.state === 'subdue'){
       g.subdueT -= dt;
@@ -1069,6 +1237,12 @@ function tick(dt){
     // (Ticks are 1 sim-minute, so this scales correctly at every game speed.)
     sim.releaseQueue = shuffle(sim.inmates.slice());
     for (const p of sim.releaseQueue) p.releaseAt = sim.tickCount + randi(0, 30);
+    sim.nightAlarm = false;
+    for (const p of sim.inmates){ p.escaped = false; p.sneaking = false; }
+    if (sim.phase === 'SLEEP'){
+      for (const p of sim.inmates) stashContra(p);  // desks get loaded at lights-out
+      for (const p of sim.inmates) if (p.state === 'talking') endTalk(p, false);  // lights out: chats end
+    }
     if (sim.phase !== 'SLEEP') log('— ' + phaseAt(hour).label + ' —', 'dim');
   }
   // release inmates whose departure time has come, a few per tick.
@@ -1081,6 +1255,7 @@ function tick(dt){
     });
   }
   if (sim.shakedownCd > 0) sim.shakedownCd -= dt;
+  if (sim.cellSearchCd > 0) sim.cellSearchCd -= dt;
   sim.shakeRecent = Math.max(0, sim.shakeRecent - dt/1440);
   if (sim.tickCount % 20 === 0) sim.recentFights = Math.max(0, sim.recentFights - 1);
 
@@ -1127,6 +1302,11 @@ function tick(dt){
   }
   if (sim.tickCount % 20 === 0) tickSocial();
   if (sim.tickCount % 10 === 0) tickChats();   // regular visible chats — the user watches bonds form
+  if (sim.phase === 'SLEEP'){
+    if (sim.tickCount % 20 === 0) tickDeception();   // sheets, dummies, night sneaking
+    // night checks only once everyone is released — no false alarms mid-transit
+    if (sim.tickCount % 30 === 0 && !sim.releaseQueue.length) tickNightChecks();
+  }
   tickFights(dt);
   tickRiot(dt);
   if (sim.tickCount % 10 === 0) updateRiotRisk();
@@ -1204,6 +1384,29 @@ const W = {
     toast('Shakedown: ' + found + ' items seized.');
     return true;
   },
+  cellSearch(){
+    if (sim.cellSearchCd > 0){ toast('Cell search on cooldown.', true); return false; }
+    if (!spend(300)){ toast('Not enough funds.', true); return false; }
+    sim.cellSearchCd = 1440;
+    const cands = sim.inmates.filter(p => p.state !== 'leaving' && p.solitaryT <= 0);
+    if (!cands.length){ toast('No inmates to search.', true); return false; }
+    const picks = shuffle(cands.slice()).slice(0, Math.min(2, cands.length));
+    const guards = sim.guards.filter(g => (g.state === 'patrol' || g.state === 'moving-patrol') && g.downT <= 0);
+    log('Cell search ordered: ' + picks.map(p => 'Block ' + BLOCKS[p.block].name + ' cell ' + (p.cellIdx + 1)).join(' and ') + '.', 'info');
+    picks.forEach((p, i) => {
+      const g = guards[i];
+      if (g){
+        endSearch(g);
+        g.state = 'search';
+        g.searchJob = { inmate: p, stage: 'go', t: 0 };
+        g.path = [];
+      } else {
+        resolveCellSearch(p);   // no free guard — the desk gets tossed anyway
+      }
+    });
+    toast('Cell search underway.');
+    return true;
+  },
   toggleLockdown(){
     sim.lockdown = !sim.lockdown;
     log(sim.lockdown ? 'LOCKDOWN ordered. All inmates to cells.' : 'Lockdown lifted.', sim.lockdown ? 'bad' : 'info');
@@ -1249,6 +1452,7 @@ function debugRiot(){ startRiot(); }
 globalThis.__lockdown = {
   newGame, tick, W, sim: () => sim,
   inmateAt, isWalkable, debugRiot, startFight,
+  resolveCellSearch, tickNightChecks, tickDeception, captureEscapee, cellRect,
   BLOCKS, NODES, ZONES,
   version: 3,
 };
@@ -1428,6 +1632,57 @@ function tintFor(hour){
 }
 const TOWERS = [[509,168],[1484,163]];  // measured in the mockup
 
+// zoomed-in cell interiors (cam.zoom > 2): bed, desk, sheet over the bars,
+// bed dummy lump. Painted-style rects, cheap — cells are ~33px in world space.
+// Cell furniture: bed + desk, drawn UNDER the figures (an inmate stands next
+// to their bed, not under a slab). Small and tucked into the cell corner.
+function drawCellFurniture(ctx){
+  for (const p of sim.inmates){
+    if (p.state === 'leaving') continue;
+    const b = BLOCKS[p.block];
+    if (!b.open) continue;
+    const r = cellRect(b, p.cellIdx);
+    const c = p.cell;
+    // bed: top-left corner of the cell (frame + mattress; bare if sheet stripped)
+    const bw = r.w * 0.34, bh = r.h * 0.26;
+    const bx = r.x + 3, by = r.y + 3;
+    ctx.fillStyle = '#4a3b2c';
+    ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+    ctx.fillStyle = c.sheetRemoved ? '#b8ab98' : '#ddd6c8';
+    ctx.fillRect(bx, by, bw, bh);
+    // folded blanket stripe at the foot of the mattress
+    ctx.fillStyle = '#a8541f';
+    ctx.fillRect(bx, by + bh - 3, bw, 3);
+    if (c.bedDummy){
+      // orange lump under the covers — the Escapists bed dummy
+      ctx.fillStyle = '#e8722a';
+      ctx.beginPath();
+      ctx.ellipse(bx + bw * 0.5, by + bh * 0.55, bw * 0.28, bh * 0.30, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // desk/drawers: bottom-right corner of the cell
+    ctx.fillStyle = '#5f4a30';
+    ctx.fillRect(r.x + r.w - 10, r.y + r.h - 10, 8, 8);
+    ctx.fillStyle = '#3d2f1e';
+    ctx.fillRect(r.x + r.w - 10, r.y + r.h - 6.5, 8, 1.5);
+  }
+}
+// Sheet draped over the cell bars: drawn OVER the figures (it hangs in front).
+function drawCellSheets(ctx){
+  for (const p of sim.inmates){
+    if (p.state === 'leaving') continue;
+    const b = BLOCKS[p.block];
+    if (!b.open) continue;
+    const r = cellRect(b, p.cellIdx);
+    if (p.cell.sheetOnBars){
+      ctx.fillStyle = 'rgba(226,220,208,0.94)';
+      ctx.fillRect(r.x + 1, r.y + r.h - 6, r.w - 2, 5);
+      ctx.fillStyle = 'rgba(160,150,135,0.9)';
+      ctx.fillRect(r.x + 1, r.y + r.h - 2.5, r.w - 2, 1.5);
+    }
+  }
+}
+
 function render(ctx, cw, ch, now){
   ctx.setTransform(1,0,0,1,0,0);
   ctx.fillStyle = '#07080b';
@@ -1448,6 +1703,9 @@ function render(ctx, cw, ch, now){
     ctx.fillStyle = '#6e7f55'; ctx.fillRect(120, 90, 1680, 1100);
   }
 
+  // zoomed-in cell furniture (beds, desks, dummies): under the figures
+  if (cam.zoom > 2) drawCellFurniture(ctx);
+
   // painter's algorithm: draw by ground Y so nearer figures overlap farther ones
   // (drawList is reused — no per-frame allocation in the hot loop)
   drawList.length = 0;
@@ -1457,6 +1715,9 @@ function render(ctx, cw, ch, now){
   const order = __lockdown.lastDraw || (__lockdown.lastDraw = []);
   order.length = 0;
   for (const e of drawList){ drawFigure(ctx, e, now); order.push(e.y); }
+
+  // zoomed-in cell details: beds, desks, sheets over bars, bed dummies
+  if (cam.zoom > 2) drawCellSheets(ctx);
 
   const hour = sim.minutes / 60;
   const night = (hour >= 20 || hour < 5);
@@ -1638,8 +1899,8 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
       b.restore();
     } catch (e) {}
   }
-  // Static background: the map with the mockup's baked-in fake UI panels painted
-  // over, so the live HTML covers (and any zoom/pan) never reveal them.
+  // Static background: the map (baked-in fake UI panels were removed from the
+  // image itself) plus the painted building labels.
   function buildBackground(){
     if (!bgImg || !bgImg.naturalWidth || bgOff) return;
     try {
@@ -1647,12 +1908,6 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
       c.width = IMG_W; c.height = IMG_H;
       const b = c.getContext('2d');
       b.drawImage(bgImg, 0, 0, IMG_W, IMG_H);
-      b.fillStyle = '#0b0c10';   // same dark as the live covers — invisible seam on desktop
-      for (const k in COVERS){
-        const r = COVERS[k];
-        rrPath(b, r[0]-8, r[1]-8, r[2]+16, r[3]+16, 16);
-        b.fill();
-      }
       paintLabels(b);   // building names, painted once with the background
       bgOff = c;
     } catch (e) {}
@@ -1707,7 +1962,7 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
   if (typeof Image !== 'undefined'){
     bgImg = new Image();
     bgImg.onload = function(){ buildBackground(); };
-    bgImg.src = 'assets/prison-bg.webp?v=3';
+    bgImg.src = 'assets/prison-bg.webp?v=4';
     if (bgImg.complete && bgImg.naturalWidth) buildBackground();
   }
   function layoutUI(){
@@ -1854,9 +2109,12 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
     } else if (name === 'actions'){
       const sel = sim.inmates.find(p => p.id === sim.selected);
       const cd = sim.shakedownCd > 0 ? 'Cooldown ' + Math.ceil(sim.shakedownCd/60) + 'h' : 'Ready';
+      const ccd = sim.cellSearchCd > 0 ? 'Cooldown ' + Math.ceil(sim.cellSearchCd/60) + 'h' : 'Ready';
       showMenu('WARDEN ACTIONS', [
         ['Shakedown', 'Seize contraband. Inmates will hate it. (' + cd + ')', 'FREE',
           function(){ W.shakedown(); }, sim.shakedownCd > 0],
+        ['Cell Search', 'Guards toss 2 named cells, desks included. (' + ccd + ')', '$300',
+          function(){ W.cellSearch(); }, sim.cellSearchCd > 0],
         [sim.lockdown ? 'Lift Lockdown' : 'Order Lockdown', 'Everyone to cells. Ends trouble, breeds resentment.', 'FREE',
           function(){ W.toggleLockdown(); }],
         ['Solitary — ' + (sel ? sel.name : 'no one selected'), 'Select an inmate, then isolate 24h', 'FREE',
@@ -1937,7 +2195,12 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
     }).map(nm).filter(Boolean);
     h += '<div class="sub">Friends (' + frNames.length + '): ' + (frNames.join(', ') || '—') + '</div>';
     h += '<div class="sub">Talking to: ' + (talkingNames.join(', ') || '—') + '</div>';
-    h += '<div class="sub" style="margin-top:6px">Block ' + BLOCKS[p.block].name + ' • ' + zoneOf(p.x,p.y) + '</div>';
+    h += '<div class="sub" style="margin-top:10px;margin-bottom:4px"><b>Cell — Block ' + BLOCKS[p.block].name + ' #' + (p.cellIdx + 1) + '</b></div>';
+    const cc = p.cell;
+    h += '<div class="sub">Bed: ' + (cc.bedDummy ? 'dummy under the covers' : cc.sheetRemoved ? 'sheet stripped' : 'sheet on') + '</div>';
+    h += '<div class="sub">Desk stash: ' + (cc.stash.length ? cc.stash.join(', ') : 'empty') + '</div>';
+    h += '<div class="sub">Bars: ' + (cc.sheetOnBars ? 'sheet-covered' : 'clear') + '</div>';
+    h += '<div class="sub" style="margin-top:6px">' + zoneOf(p.x,p.y) + '</div>';
     h += '<div class="pbtns"><button id="psol" class="warn">SOLITARY 24H</button>' +
          '<button id="ptran">TRANSFER $500</button></div>';
     profEl.innerHTML = h;
