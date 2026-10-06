@@ -143,6 +143,7 @@
 function rand(a,b){ return a + Math.random()*(b-a); }
 function randi(a,b){ return Math.floor(rand(a,b+1)); }
 function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function shuffle(arr){ for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); const t = arr[i]; arr[i] = arr[j]; arr[j] = t; } return arr; }
 function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
 function dist(x1,y1,x2,y2){ const dx=x2-x1, dy=y2-y1; return Math.sqrt(dx*dx+dy*dy); }
 function angTo(x1,y1,x2,y2){ return Math.atan2(y2-y1,x2-x1); }
@@ -490,6 +491,7 @@ function newGame(){
     log: [],
     selected: null,
     tickCount: 0,
+    releaseQueue: [],
   };
   let ci = 0;
   for (let i = 0; i < 40; i++){ sim.inmates.push(makeInmate(0, ci++)); }
@@ -968,8 +970,14 @@ function tick(dt){
   const hour = sim.minutes / 60;
   sim.phase = phaseAt(hour).name;
   if (sim.phase !== prevPhase){
-    assignAllTargets(true);
+    // staggered release: inmates head out in waves instead of one conga line
+    sim.releaseQueue = shuffle(sim.inmates.slice());
     if (sim.phase !== 'SLEEP') log('— ' + phaseAt(hour).label + ' —', 'dim');
+  }
+  // release a few inmates per tick — the stream spreads out naturally
+  if (sim.releaseQueue.length){
+    const n = Math.min(sim.releaseQueue.length, 3);
+    for (let i = 0; i < n; i++) assignTarget(sim.releaseQueue.pop(), true);
   }
   if (sim.shakedownCd > 0) sim.shakedownCd -= dt;
   sim.shakeRecent = Math.max(0, sim.shakeRecent - dt/1440);
@@ -1450,6 +1458,39 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
     c.arcTo(x, y+h, x, y, rad);     c.arcTo(x, y, x+w, y, rad);
     c.closePath();
   }
+  // ---- painted building labels (baked once — zero per-frame cost) ----
+  // [text, x, y, px] in image px. Painted-roof style like the old CAFETERIA sign.
+  const LABELS = [
+    ['KITCHEN',   960,  568, 34],
+    ['STORAGE',   715,  805, 30],
+    ['WORKSHOP',  837,  985, 30],
+    ['GATE',      485, 1105, 24],
+    ['GATE',      682, 1092, 24],
+    ['TOWER',     502,  168, 26],
+    ['TOWER',    1485,  165, 26],
+    ['ADMIN',     805,  228, 28],
+    ['LAUNDRY',  1210, 1088, 26],
+    ['BLOCK A',   648,  432, 20],
+    ['BLOCK B',   612,  849, 20],
+    ['BLOCK C',  1238,  452, 20],
+    ['BLOCK D',  1282,  852, 20],
+  ];
+  function paintLabels(b){
+    try {
+      b.save();
+      b.textAlign = 'center'; b.textBaseline = 'middle';
+      for (const [txt, x, y, px] of LABELS){
+        b.font = '700 ' + px + 'px "Arial Narrow", Arial, sans-serif';
+        try { b.letterSpacing = '3px'; } catch (e) {}
+        b.fillStyle = 'rgba(0,0,0,0.35)';
+        b.fillText(txt, x + 2, y + 3);
+        b.fillStyle = 'rgba(232,226,214,0.88)';
+        b.fillText(txt, x, y);
+      }
+      try { b.letterSpacing = '0px'; } catch (e) {}
+      b.restore();
+    } catch (e) {}
+  }
   // Static background: the map with the mockup's baked-in fake UI panels painted
   // over, so the live HTML covers (and any zoom/pan) never reveal them.
   function buildBackground(){
@@ -1465,6 +1506,7 @@ if (typeof document !== 'undefined' && document.getElementById('game')){
         rrPath(b, r[0]-8, r[1]-8, r[2]+16, r[3]+16, 16);
         b.fill();
       }
+      paintLabels(b);   // building names, painted once with the background
       bgOff = c;
     } catch (e) {}
   }
