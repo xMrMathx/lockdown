@@ -1,0 +1,1620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>LOCKDOWN</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#07080b; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:#f2ede4; }
+  #wrap { position:fixed; inset:0; background:#07080b; }
+  #game { position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  .cover {
+    position:absolute; z-index:10;
+    background:#0b0c10;
+    border:1px solid rgba(255,255,255,0.14);
+    border-radius:12px;
+    box-shadow:0 4px 18px rgba(0,0,0,0.55);
+    padding:10px 14px;
+    pointer-events:auto;
+    user-select:none;
+  }
+  .cover .label { font-size:11px; letter-spacing:1.5px; color:#b9b2a4; font-weight:600; }
+  .cover .big { font-size:24px; font-weight:800; color:#fff; line-height:1.25; font-variant-numeric:tabular-nums; }
+  .cover .money { color:#8fd694; }
+  #cover-stats .row { display:flex; align-items:center; gap:10px; }
+  #cover-stats .ico { font-size:22px; }
+  #cover-clock { text-align:center; }
+  #cover-clock .big { font-size:20px; }
+  #cover-risk .warn { color:#f5b942; font-weight:800; font-size:16px; }
+  #riskbar { height:8px; border-radius:4px; background:#2a2c33; margin:6px 0 4px; overflow:hidden; }
+  #riskfill { height:100%; width:20%; border-radius:4px; background:linear-gradient(90deg,#7fd069,#f5b942,#e05252); transition:width .5s; }
+  #cover-risk .stab { font-size:11px; color:#b9b2a4; text-align:right; font-variant-numeric:tabular-nums; }
+  #cover-toolbar { display:flex; gap:8px; padding:8px 10px; align-items:center; }
+  .tbtn {
+    background:#1d1f26; border:1px solid rgba(255,255,255,0.16); color:#fff;
+    border-radius:9px; padding:12px 16px; font-size:14px; font-weight:700; letter-spacing:1px;
+    cursor:pointer; min-height:48px; white-space:nowrap;
+  }
+  .tbtn:active { background:#2b2e38; transform:scale(0.97); }
+  .tbtn.on { background:#f5b942; color:#191407; border-color:#f5b942; }
+  .tbtn.danger.on { background:#e05252; border-color:#e05252; color:#fff; }
+  #menu {
+    position:absolute; z-index:20; display:none;
+    background:#0d0e13; border:1px solid rgba(255,255,255,0.16);
+    border-radius:14px; box-shadow:0 8px 30px rgba(0,0,0,0.6);
+    padding:14px; max-width:min(92vw,430px); max-height:70vh; overflow-y:auto;
+  }
+  #menu h3 { font-size:13px; letter-spacing:2px; color:#f5b942; margin-bottom:10px; }
+  #menu .mclose { float:right; background:none; border:none; color:#888; font-size:20px; cursor:pointer; padding:4px 8px; }
+  .mitem {
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    background:#1d1f26; border:1px solid rgba(255,255,255,0.1); border-radius:10px;
+    padding:12px; margin-bottom:8px; cursor:pointer; width:100%; color:#fff; text-align:left;
+    font-size:14px;
+  }
+  .mitem:active { background:#2b2e38; }
+  .mitem:disabled { opacity:0.4; cursor:default; }
+  .mitem .cost { color:#8fd694; font-weight:700; white-space:nowrap; }
+  .mitem small { display:block; color:#a09a8c; font-size:12px; margin-top:3px; }
+  #profile {
+    position:absolute; z-index:20; display:none; right:12px; top:12px;
+    width:min(86vw,320px); background:#0d0e13;
+    border:1px solid rgba(245,185,66,0.4); border-radius:14px;
+    box-shadow:0 8px 30px rgba(0,0,0,0.65); padding:16px;
+  }
+  #profile h2 { font-size:20px; margin-bottom:2px; }
+  #profile .sub { color:#a09a8c; font-size:13px; margin-bottom:8px; }
+  #profile .chips { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+  #profile .chip { background:#2a2d36; border-radius:20px; padding:4px 10px; font-size:12px; color:#d8d2c4; }
+  #profile .chip.gang { background:#5a2c2c; color:#ffb3b3; border:1px solid #a04a4a; }
+  #profile .story { font-style:italic; color:#c9c2b2; font-size:13px; line-height:1.45; margin:8px 0; padding:8px; background:#17181d; border-radius:8px; }
+  .needrow { display:flex; align-items:center; gap:8px; margin:5px 0; font-size:12px; }
+  .needrow .nl { width:64px; color:#a09a8c; }
+  .needbar { flex:1; height:7px; background:#2a2c33; border-radius:4px; overflow:hidden; }
+  .needfill { height:100%; border-radius:4px; background:#7fd069; transition:width .4s; }
+  #profile .pbtns { display:flex; gap:8px; margin-top:12px; }
+  #profile .pbtns button { flex:1; padding:12px; border-radius:10px; border:1px solid rgba(255,255,255,0.16); background:#1d1f26; color:#fff; font-weight:700; cursor:pointer; min-height:48px; }
+  #profile .pbtns button.warn { background:#5a2c2c; border-color:#a04a4a; }
+  #toasts { position:absolute; z-index:30; bottom:86px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; width:max-content; max-width:92vw; }
+  .toast { background:#0d0e13; border:1px solid rgba(245,185,66,0.45); color:#ffe9bd; border-radius:10px; padding:9px 16px; font-size:13px; font-weight:600; box-shadow:0 4px 16px rgba(0,0,0,0.5); animation:tin .25s ease-out; max-width:92vw; }
+  .toast.bad { border-color:rgba(224,82,82,0.6); color:#ffc9c9; }
+  @keyframes tin { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:none;} }
+  .tabs { display:flex; gap:6px; margin-bottom:10px; }
+  .tab { flex:1; padding:10px; text-align:center; background:#1d1f26; border:1px solid rgba(255,255,255,0.1); color:#cfc9ba; border-radius:8px; cursor:pointer; font-size:13px; font-weight:700; }
+  .tab.on { background:#f5b942; color:#191407; border-color:#f5b942; }
+  .rrow { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:#17181d; border-radius:8px; margin-bottom:6px; cursor:pointer; font-size:13px; }
+  .rrow:active { background:#22232b; }
+  .rrow .dot { width:10px; height:10px; border-radius:50%; background:#e8722a; margin-right:8px; flex:none; }
+  .rrow .dot.guard { background:#5a7bd6; }
+  .rrow .nm { flex:1; }
+  .rrow .st { color:#a09a8c; font-size:12px; }
+  .logrow { padding:7px 10px; font-size:12.5px; color:#cfc9ba; border-bottom:1px solid rgba(255,255,255,0.06); }
+  .logrow .lt { color:#f5b942; font-weight:700; margin-right:6px; font-variant-numeric:tabular-nums; }
+  #vignette-note { display:none; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <div id="cover-stats" class="cover">
+    <div class="row"><span class="ico">👥</span><div><div class="label">POPULATION</div><div class="big" id="stat-pop">40 / 60</div></div></div>
+    <div class="row" style="margin-top:6px"><span class="ico">💰</span><div><div class="label">FUNDS</div><div class="big money" id="stat-funds">$25,000</div></div></div>
+  </div>
+
+  <div id="cover-clock" class="cover">
+    <div class="big"><span id="clock-day">DAY 1</span> &nbsp;|&nbsp; <span id="clock-time">06:00</span> • <span id="clock-phase">BREAKFAST</span></div>
+  </div>
+
+  <div id="cover-risk" class="cover">
+    <div class="label">⚠ RIOT RISK: <span class="warn" id="risk-label">LOW</span></div>
+    <div id="riskbar"><div id="riskfill"></div></div>
+    <div class="stab">STABILITY <span id="risk-stab">100%</span></div>
+  </div>
+
+  <div id="cover-toolbar" class="cover">
+    <button class="tbtn" id="btn-pause">⏸ PAUSE</button>
+    <button class="tbtn" id="btn-speed">▶ SPEED 1x</button>
+    <button class="tbtn" id="btn-build">🏗 BUILD</button>
+    <button class="tbtn" id="btn-staff">👮 STAFF</button>
+    <button class="tbtn" id="btn-reports">📋 REPORTS</button>
+    <button class="tbtn danger" id="btn-actions">⚠ ACTIONS</button>
+  </div>
+
+  <div id="menu"></div>
+  <div id="profile"></div>
+  <div id="toasts"></div>
+</div>
+<script>
+'use strict';
+/* ============================================================
+   LOCKDOWN — auto-sim prison management game
+   Background: the approved mockup image IS the map (1920x1280).
+   All dynamic entities are composited INTO the scene.
+   ============================================================ */
+
+// ---------- utils ----------
+function rand(a,b){ return a + Math.random()*(b-a); }
+function randi(a,b){ return Math.floor(rand(a,b+1)); }
+function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function dist(x1,y1,x2,y2){ const dx=x2-x1, dy=y2-y1; return Math.sqrt(dx*dx+dy*dy); }
+function angTo(x1,y1,x2,y2){ return Math.atan2(y2-y1,x2-x1); }
+function fmtMoney(n){ return '$' + Math.round(n).toLocaleString('en-US'); }
+function pad2(n){ return (n<10?'0':'')+n; }
+
+// ---------- data ----------
+const FIRST = ['Marcus','Dre','Malik','Tyrone','Jamal','Chris','Devon','Andre','Keith','Rico','Tony','Mike','Jay','Eric','Sam','Leo','Vince','Ray','Omar','Deshawn','Cody','Nate','Paul','Rob','Steve','Lou','Eddie','Frank','Gus','Hank'];
+const LAST = ['Johnson','Williams','Brown','Jones','Davis','Miller','Wilson','Moore','Taylor','Anderson','Thomas','Jackson','White','Harris','Martin','Thompson','Garcia','Martinez','Robinson','Clark','Lewis','Lee','Walker','Hall','Young','King','Wright','Scott','Green','Baker'];
+const CRIMES = [
+  ['Burglary',2,6],['Armed Robbery',6,18],['Drug Trafficking',4,12],['Assault',2,8],
+  ['Grand Theft Auto',3,9],['Fraud',2,7],['Manslaughter',8,20],['Arson',5,14],
+  ['Kidnapping',10,25],['Murder',15,30],['Extortion',3,10],['Weapons Charge',2,6]
+];
+const TRAITS = ['aggressive','loner','leader','follower','smart','tough','sneaky','hothead','calm','charismatic','joker','quiet'];
+const AFFILS = [
+  {name:'Iron Kings', color:'#e05252'},
+  {name:'Night Crows', color:'#9a6ee8'},
+  {name:'Vipers', color:'#5ec46e'}
+];
+const SKIN = ['#f1c9a5','#e0ac82','#c98d64','#a06a42','#7a4f2e','#5d3a22'];
+const STORIES = [
+  'Grew up on the east side. Says the {c} was "just business" — the jury disagreed.',
+  'Was a line cook before the {c}. Still talks about the kitchen like it was yesterday.',
+  'Third strike. Keeps to {self} and counts the days on a wall no one else can see.',
+  'Used to run with a crew outside. Inside, {hes} trying to stay invisible.',
+  'The {c} made the local news for a week. {He} has not watched the news since.',
+  'Tells new fish {he} is innocent. The file says otherwise.',
+  'Lost everything in the {c} — family, house, name. Starting over from a cell.',
+  'Reads more than anyone on the block. The {c} was, in {his} words, "a mistake with a gun."'
+];
+function makeStory(crime){
+  let s = pick(STORIES).replace(/\{c\}/g, crime.toLowerCase());
+  s = s.replace(/\{self\}/g,'themselves').replace(/\{hes\}/g,"he's")
+       .replace(/\{He\}/g,'He').replace(/\{he\}/g,'he').replace(/\{his\}/g,'his');
+  return s;
+}
+
+// ============================================================
+// MAP — image pixel space 1920x1280 (the mockup IS the map).
+// Movement is locked to the waypoint graph + walkable zone rects.
+// Nothing ever walks over rooftops or through walls.
+// ============================================================
+const IMG_W = 1920, IMG_H = 1280;
+
+// ROOFS — forbidden ground, always. Measured against assets/prison-bg.webp.
+// Checked FIRST in isWalkable: no figure may ever stand on roof texture.
+const ROOFS = [
+  {x:715,  y:495,  w:490, h:140},  // central kitchen/dining building roof
+  {x:595,  y:735,  w:240, h:135},  // long storage building roof (south of courtyard)
+  {x:760,  y:920,  w:155, h:125},  // CAFETERIA building roof (crate yard)
+  {x:430,  y:1035, w:110, h:135},  // west gatehouse (pitched roof)
+  {x:635,  y:1055, w:95,  h:70},   // east gatehouse (measured)
+  {x:435,  y:70,   w:135, h:190},  // west watchtower
+  {x:1415, y:65,   w:140, h:195},  // east watchtower
+  {x:730,  y:140,  w:150, h:170},  // admin building (pitched roof, north of court)
+  {x:1120, y:1040, w:180, h:90},   // chimney utility building (crate yard SE)
+  {x:598,  y:1118, w:64,  h:87},   // small shed on the gate road
+];
+function onRoof(x, y, pad){
+  pad = pad || 0;
+  for (const r of ROOFS)
+    if (x >= r.x - pad && x <= r.x + r.w + pad && y >= r.y - pad && y <= r.y + r.h + pad) return true;
+  return false;
+}
+
+// Walkable OPEN GROUND only — every rect verified against the map image.
+// The roof veto above is the backstop: zones never need to overlap roofs.
+const ZONES = {
+  court:     {x:755,  y:315, w:310, h:180},   // basketball court
+  weightsW:  {x:595,  y:310, w:195, h:185},   // west weights
+  weightsE:  {x:1080, y:285, w:220, h:210},   // east weights
+  yardPlaza: {x:575,  y:165, w:150, h:140},   // plaza between tower & admin bldg
+  cafeteria: {x:790,  y:645, w:370, h:115},   // OPEN-AIR dining courtyard (roofless)
+  workshopW: {x:605,  y:880, w:150, h:185},   // crate yard west of CAFETERIA bldg
+  workshopE: {x:920,  y:905, w:190, h:160},   // crate yard east of CAFETERIA bldg
+  gateRoad:  {x:540,  y:1076, w:110, h:70},    // dirt road between the two gatehouses
+  band:      {x:840,  y:770, w:260, h:60},    // walkway south of courtyard
+  westWalk:  {x:560,  y:400, w:100, h:500},   // west path between blocks & center
+  eastWalk:  {x:1250, y:420, w:90,  h:450},   // east path
+  southWalk: {x:560,  y:940, w:120, h:200},   // west of crate yard, gate approach
+};
+
+// Cell blocks: roofless in the image, inmates live INSIDE their cells.
+const BLOCKS = [
+  {name:'A', x:342,  y:246, w:241, h:361, open:true,  door:[601,426],  node:'aDoor'},
+  {name:'B', x:255,  y:653, w:279, h:381, open:false, door:[552,843],  node:'bDoor'},
+  {name:'C', x:1311, y:247, w:240, h:399, open:false, door:[1293,446], node:'cDoor'},
+  {name:'D', x:1352, y:650, w:257, h:384, open:false, door:[1334,842], node:'dDoor'},
+];
+const BLOCK_CAP = 60;
+
+function cellSpot(b, i){
+  const cols = 6, rows = 10, m = 20;
+  const c = i % cols, r = Math.floor(i / cols) % rows;
+  return [b.x + m + (c + 0.5) * (b.w - m*2) / cols,
+          b.y + m + (r + 0.5) * (b.h - m*2) / rows];
+}
+
+// Walkable waypoint graph — nodes sit on open ground only (never on roofs).
+// Routes between plaza and yard go AROUND the kitchen building (east/west),
+// never over it.
+const NODES = {
+  gate:  [594,1112],
+  shopW: [680,975],   // west crate yard
+  shopE: [1015,985],  // east crate yard
+  wK:    [600,980],
+  wC:    [575,835],
+  plazaC:[972,835],
+  cafE:  [1110,700],  // east opening into the dining courtyard
+  cafC:  [972,700],   // courtyard center
+  cafS:  [1000,800],
+  yardS: [972,470],
+  yardW: [740,345],  yardE:[1200,345],
+  wN:    [615,426],  wS:[575,843],
+  eN:    [1295,446], eS:[1295,842],
+  aDoor: [601,426],  bDoor:[552,843],
+  cDoor: [1293,446], dDoor:[1334,842],
+};
+const EDGES = [
+  ['gate','wK'],
+  ['wK','wC'], ['wK','shopW'],
+  // NOTE: no south corridor past the CAFETERIA building — the gatehouse and
+  // building corners leave no clean path. West<->east routes via the yard (north).
+  ['shopE','plazaC'],
+  // NOTE: no direct wC-plazaC edge — the storage building sits between them.
+  // East-west traffic routes around via the crate yard (south) or the yard (north).
+  ['plazaC','cafE'], ['cafE','cafC'], ['cafC','cafS'],
+  ['wC','wS'], ['wS','wN'], ['wN','yardW'],
+  ['cafS','shopE'],
+  ['wC','wS'], ['wS','wN'], ['wN','yardW'],
+  ['wN','aDoor'], ['wS','bDoor'],
+  ['yardW','yardS'], ['yardS','yardE'],
+  ['yardE','eN'], ['eN','eS'], ['eN','cDoor'], ['eS','dDoor'],
+  ['eS','plazaC'],
+];
+const ADJ = {};
+for (const k in NODES) ADJ[k] = [];
+for (const [a,b] of EDGES){ ADJ[a].push(b); ADJ[b].push(a); }
+
+function bfsPath(from, to){
+  if (from === to) return [from];
+  const prev = {[from]:null}, q = [from];
+  while (q.length){
+    const cur = q.shift();
+    if (cur === to) break;
+    for (const nx of ADJ[cur]) if (!(nx in prev)){ prev[nx] = cur; q.push(nx); }
+  }
+  if (!(to in prev)) return [from];
+  const path = []; let c = to;
+  while (c){ path.unshift(c); c = prev[c]; }
+  return path;
+}
+function nearestNode(x, y){
+  let best = null, bd = 1e18;
+  for (const k in NODES){
+    const d = dist(x, y, NODES[k][0], NODES[k][1]);
+    if (d < bd){ bd = d; best = k; }
+  }
+  return best;
+}
+// Is the straight line between two points free of roofs / non-walkable ground?
+function segmentClear(x1, y1, x2, y2){
+  const d = dist(x1, y1, x2, y2);
+  const steps = Math.max(1, Math.ceil(d / 12));
+  for (let i = 1; i <= steps; i++){
+    const t = i / steps;
+    if (!isWalkable(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t)) return false;
+  }
+  return true;
+}
+// Nearest node reachable by a straight walk — so the first hop of a route
+// never cuts across a roof or wall. Falls back to plain nearest node.
+function nearestNodeWalkable(x, y){
+  let best = null, bd = 1e18;
+  const keys = Object.keys(NODES).sort((a, b) =>
+    dist(x, y, NODES[a][0], NODES[a][1]) - dist(x, y, NODES[b][0], NODES[b][1]));
+  for (const k of keys){
+    const d = dist(x, y, NODES[k][0], NODES[k][1]);
+    if (d < 8) return k;  // standing on it — trivially clear
+    if (segmentClear(x, y, NODES[k][0], NODES[k][1])) return k;
+    if (d < bd){ bd = d; best = k; }
+  }
+  return best;
+}
+function distToSeg(px,py,ax,ay,bx,by){
+  const dx = bx-ax, dy = by-ay;
+  const L2 = dx*dx + dy*dy;
+  let t = L2 ? ((px-ax)*dx + (py-ay)*dy) / L2 : 0;
+  t = clamp(t, 0, 1);
+  return dist(px, py, ax + t*dx, ay + t*dy);
+}
+function inRect(x, y, r, m){
+  return x >= r.x - m && x <= r.x + r.w + m && y >= r.y - m && y <= r.y + r.h + m;
+}
+
+// Walkability audit: every entity position must satisfy this, every tick.
+// Roof veto runs FIRST: no figure may ever stand on roof texture, period.
+function isWalkable(x, y){
+  if (onRoof(x, y, 2)) return false;
+  const M = 14;
+  for (const k in ZONES) if (inRect(x, y, ZONES[k], M)) return true;
+  for (const b of BLOCKS)
+    if (inRect(x, y, {x:b.x, y:b.y, w:b.w, h:b.h}, 2)) return true;
+  for (const b of BLOCKS)
+    if (dist(x, y, b.door[0], b.door[1]) < 34) return true;
+  for (const [a,b] of EDGES){
+    const A = NODES[a], B = NODES[b];
+    if (distToSeg(x, y, A[0], A[1], B[0], B[1]) < 26) return true;
+  }
+  return false;
+}
+
+// Zone anchor spots
+function yardSpot(){
+  const r = Math.random();
+  if (r < 0.30) return [rand(860,1060), rand(320,490)];        // basketball court
+  if (r < 0.45){ const w = pick([[1195,360],[700,400]]); return [w[0]+rand(-40,40), w[1]+rand(-30,30)]; } // weights
+  return [rand(620,1290), rand(320,490)];                       // open yard
+}
+// Seats at the tables in the OPEN-AIR dining courtyard (roofless — never the kitchen roof).
+function cafeteriaSeat(i){
+  const tables = [[840,670],[950,670],[1060,685],[840,725],[950,725],[1060,735]];
+  const t = tables[i % tables.length];
+  const offs = [[-24,0],[24,0],[0,-20],[0,20]];
+  const o = offs[Math.floor(i / tables.length) % offs.length];
+  let x = t[0]+o[0]+rand(-4,4), y = t[1]+o[1]+rand(-4,4), tries = 0;
+  while (onRoof(x, y, 6) && tries < 12){ x = t[0]+rand(-30,30); y = t[1]+rand(-24,24); tries++; }
+  return [x, y];
+}
+// Work stations among the crates in the open crate yard (never on the CAFETERIA roof).
+function workshopStation(i){
+  const west = (i % 2 === 0);
+  let x, y, tries = 0;
+  do {
+    if (west){ x = rand(615, 745); y = rand(890, 1060); }
+    else { x = rand(930, 1100); y = rand(915, 1060); }
+    tries++;
+  } while (onRoof(x, y, 6) && tries < 16);
+  return [x, y];
+}
+function zoneOf(x, y){
+  for (const b of BLOCKS) if (inRect(x, y, {x:b.x,y:b.y,w:b.w,h:b.h}, 4)) return 'block' + b.name;
+  if (inRect(x, y, ZONES.court, 10) || inRect(x, y, ZONES.weightsW, 10) ||
+      inRect(x, y, ZONES.weightsE, 10) || inRect(x, y, ZONES.yardPlaza, 10)) return 'yard';
+  if (inRect(x, y, ZONES.cafeteria, 10)) return 'cafeteria';
+  if (inRect(x, y, ZONES.workshopW, 10) || inRect(x, y, ZONES.workshopE, 10)) return 'workshop';
+  return 'paths';
+}
+
+// ============================================================
+// SIM
+// ============================================================
+const PHASES = [
+  {name:'SLEEP',     label:'NIGHT',     start:22, end:6},
+  {name:'BREAKFAST', label:'BREAKFAST', start:6,  end:8},
+  {name:'WORK',      label:'WORK',      start:8,  end:12},
+  {name:'LUNCH',     label:'LUNCH',     start:12, end:13},
+  {name:'YARD',      label:'YARD TIME', start:13, end:17},
+  {name:'DINNER',    label:'DINNER',    start:17, end:19},
+  {name:'LOCKDOWN',  label:'LOCKDOWN',  start:19, end:22},
+];
+function phaseAt(hour){
+  for (const p of PHASES){
+    if (p.start < p.end){ if (hour >= p.start && hour < p.end) return p; }
+    else { if (hour >= p.start || hour < p.end) return p; }
+  }
+  return PHASES[0];
+}
+
+let sim = null;
+let nextId = 1;
+
+function makeInmate(blockIdx, cellIdx){
+  const crime = pick(CRIMES);
+  const traits = [];
+  while (traits.length < 2){ const t = pick(TRAITS); if (!traits.includes(t)) traits.push(t); }
+  const affilRoll = Math.random();
+  const affil = affilRoll < 0.24 ? pick(AFFILS) : null;
+  const b = BLOCKS[blockIdx];
+  const spot = cellSpot(b, cellIdx);
+  const p = {
+    id: nextId++, kind:'inmate',
+    name: pick(FIRST) + ' ' + pick(LAST),
+    crime: crime[0], sentence: randi(crime[1], crime[2]),
+    traits, affil,
+    needs: { hunger:rand(0.5,0.9), energy:rand(0.5,0.9), comfort:rand(0.5,0.9), safety:rand(0.5,0.9), social:rand(0.4,0.8) },
+    story: '',
+    gangId: null, friends: [], bond: {}, beef: {},
+    contra: null,
+    block: blockIdx, cellIdx,
+    x: spot[0], y: spot[1],
+    path: [], targetZone: 'block' + b.name, spotTarget: null,
+    state: 'idle',           // idle | moving | fight | riot | leaving
+    face: rand(0, Math.PI*2), animT: rand(0,10),
+    fightWith: null, fightT: 0, subdueT: 0,
+    solitaryT: 0, injuredT: 0,
+    node: b.node,
+    visited: {},
+  };
+  p.story = makeStory(p.crime);
+  return p;
+}
+function makeGuard(){
+  // spawn on open ground by the gate — never on a roof
+  let gx = NODES.gate[0] + rand(-14,14), gy = NODES.gate[1] + rand(-10,10), tries = 0;
+  while (!isWalkable(gx, gy) && tries < 25){
+    gx = NODES.gate[0] + rand(-14,14); gy = NODES.gate[1] + rand(-10,10); tries++;
+  }
+  const g = {
+    id: nextId++, kind:'guard',
+    name: 'Officer ' + pick(LAST),
+    x: gx, y: gy,
+    path: [], node: 'gate',
+    state: 'patrol',         // patrol | respond | subdue | down
+    face: rand(0, Math.PI*2), animT: rand(0,10),
+    target: null, subdueT: 0, downT: 0,
+    skin: pick(SKIN),
+  };
+  return g;
+}
+
+function openBlocks(){ return BLOCKS.filter(b => b.open); }
+function capacity(){ return openBlocks().length * BLOCK_CAP; }
+
+function newGame(){
+  nextId = 1;
+  for (const b of BLOCKS) b.open = (b.name === 'A');
+  sim = {
+    day: 1, minutes: 6*60,   // start Day 1, 06:00
+    phase: 'BREAKFAST',
+    speed: 1, paused: false,
+    funds: 25000,
+    inmates: [], guards: [],
+    gangs: [], nextGangId: 1,
+    gangTension: 0.15,
+    riotRisk: 0.1,
+    riot: { active:false },
+    lockdown: false,
+    fence: 1, cameras: 0, programs: false,
+    shakedownCd: 0, shakeRecent: 0,
+    recentFights: 0,
+    log: [],
+    selected: null,
+    tickCount: 0,
+  };
+  let ci = 0;
+  for (let i = 0; i < 40; i++){ sim.inmates.push(makeInmate(0, ci++)); }
+  for (let i = 0; i < 6; i++) sim.guards.push(makeGuard());
+  log('Intake complete. 40 inmates housed in Block A.', 'info');
+  log('Warden on duty. The yard is yours to watch.', 'info');
+  assignAllTargets(true);
+  return sim;
+}
+
+function log(msg, cls){
+  const h = Math.floor(sim.minutes / 60), m = Math.floor(sim.minutes % 60);
+  sim.log.unshift({ day: sim.day, time: pad2(h) + ':' + pad2(m), msg, cls: cls || '' });
+  if (sim.log.length > 200) sim.log.pop();
+}
+
+// ---- movement (graph-locked) ----
+function setPath(e, pts){
+  e.path = pts.slice();
+}
+function routeTo(e, nodeName, finalSpot){
+  const from = nearestNodeWalkable(e.x, e.y);
+  const nodes = bfsPath(from, nodeName);
+  const pts = nodes.map(k => NODES[k].slice());
+  if (finalSpot) pts.push(finalSpot.slice());
+  // drop first point if we're already standing on it
+  if (pts.length && dist(e.x, e.y, pts[0][0], pts[0][1]) < 8) pts.shift();
+  setPath(e, pts);
+  e.node = nodeName;
+}
+function moveAlong(e, dtMin, speedPxMin){
+  if (!e.path.length) return true;
+  let remaining = speedPxMin * dtMin;
+  while (remaining > 0 && e.path.length){
+    const t = e.path[0];
+    const d = dist(e.x, e.y, t[0], t[1]);
+    if (d <= remaining){
+      e.x = t[0]; e.y = t[1]; e.path.shift(); remaining -= d;
+    } else {
+      const a = angTo(e.x, e.y, t[0], t[1]);
+      e.x += Math.cos(a) * remaining; e.y += Math.sin(a) * remaining;
+      e.face = turnToward(e.face, a, 0.25);
+      remaining = 0;
+    }
+  }
+  e.animT += dtMin;
+  return e.path.length === 0;
+}
+function turnToward(cur, target, k){
+  let d = target - cur;
+  while (d > Math.PI) d -= Math.PI*2;
+  while (d < -Math.PI) d += Math.PI*2;
+  return cur + d * k;
+}
+
+// ---- phase targets ----
+function targetFor(p){
+  const b = BLOCKS[p.block];
+  if (sim.lockdown || p.solitaryT > 0) return { node: b.node, spot: cellSpot(b, p.cellIdx), zone:'block'+b.name };
+  switch (sim.phase){
+    case 'SLEEP': case 'LOCKDOWN':
+      return { node: b.node, spot: cellSpot(b, p.cellIdx), zone:'block'+b.name };
+    case 'BREAKFAST': case 'LUNCH': case 'DINNER':
+      return { node:'cafE', spot: cafeteriaSeat(p.id), zone:'cafeteria' };
+    case 'WORK':
+      // work happens in the OPEN crate yard — never inside roofed buildings
+      return { node: (p.id % 2 === 0 ? 'shopW' : 'shopE'), spot: workshopStation(p.id), zone:'workshop' };
+    case 'YARD':
+      return { node: pick(['yardW','yardE','yardS']), spot: yardSpot(), zone:'yard' };
+    default:
+      return { node: b.node, spot: cellSpot(b, p.cellIdx), zone:'block'+b.name };
+  }
+}
+function assignTarget(p, force){
+  if (p.state === 'fight' || p.state === 'riot' || p.state === 'leaving') return;
+  const t = targetFor(p);
+  if (!force && p.targetZone === t.zone && !p.path.length) {
+    if (!p.spotTarget || dist(p.x, p.y, p.spotTarget[0], p.spotTarget[1]) > 40){
+      p.spotTarget = t.spot;
+      routeTo(p, t.node, t.spot);
+      if (p.path.length) p.state = 'moving'; else p.state = 'idle';
+    }
+    return;
+  }
+  p.targetZone = t.zone; p.spotTarget = t.spot;
+  p.visited[t.zone] = true;
+  routeTo(p, t.node, t.spot);
+  p.state = p.path.length ? 'moving' : 'idle';
+}
+function assignAllTargets(force){
+  for (const p of sim.inmates) assignTarget(p, force);
+}
+
+// ---- needs ----
+function tickNeeds(p, dt){
+  const n = p.needs;
+  const sleeping = sim.phase === 'SLEEP' && p.targetZone === 'block'+BLOCKS[p.block].name && !p.path.length;
+  const inCell = p.targetZone.indexOf('block') === 0 && !p.path.length;
+  n.hunger = clamp(n.hunger - 0.0011*dt, 0, 1);
+  n.energy = clamp(n.energy + (sleeping ? 0.0045 : -0.0010)*dt, 0, 1);
+  n.comfort = clamp(n.comfort + ((inCell ? 0.0018 : -0.0005) + (sim.programs ? 0.0004 : 0))*dt, 0, 1);
+  n.safety = clamp(n.safety + (0.72 - n.safety)*0.002*dt, 0, 1);
+  let socialGain = -0.0009*dt;
+  if (p.targetZone === 'yard' && !p.path.length) socialGain = 0.0022*dt * (p.traits.includes('loner') ? 0.4 : 1);
+  for (const f of p.friends){
+    const q = sim.inmates.find(r => r.id === f);
+    if (q && dist(p.x,p.y,q.x,q.y) < 90){ socialGain = Math.max(socialGain, 0.004*dt); break; }
+  }
+  n.social = clamp(n.social + socialGain*(sim.programs?1.25:1), 0, 1);
+  // eating
+  if ((sim.phase==='BREAKFAST'||sim.phase==='LUNCH'||sim.phase==='DINNER') && p.targetZone==='cafeteria' && !p.path.length)
+    n.hunger = clamp(n.hunger + 0.012*dt, 0, 1);
+  if (p.solitaryT > 0){ n.social = clamp(n.social - 0.004*dt, 0, 1); n.comfort = clamp(n.comfort - 0.002*dt, 0, 1); }
+}
+function moodOf(p){
+  const n = p.needs;
+  return (n.hunger + n.energy + n.comfort + n.safety + n.social) / 5;
+}
+
+// ============================================================
+// SOCIAL — friendships, beefs, gangs, contraband
+// ============================================================
+function compatible(a, b){
+  if (a.affil && a.affil === b.affil) return true;
+  if (a.traits.some(t => b.traits.includes(t))) return true;
+  if (a.needs.social < 0.45 && b.needs.social < 0.45) return true;
+  return false;
+}
+function tickSocial(){
+  const ps = sim.inmates;
+  for (let i = 0; i < ps.length; i++){
+    const a = ps[i];
+    if (a.state === 'leaving') continue;
+    for (let j = i+1; j < ps.length; j++){
+      const b = ps[j];
+      if (b.state === 'leaving') continue;
+      if (dist(a.x,a.y,b.x,b.y) > 85) continue;
+      const key = b.id;
+      if (a.friends.includes(b.id)) continue;
+      if ((a.beef[key]||0) > 2) continue;
+      const aAgg = a.traits.includes('aggressive')||a.traits.includes('hothead');
+      const bAgg = b.traits.includes('aggressive')||b.traits.includes('hothead');
+      const rival = a.affil && b.affil && a.affil !== b.affil;
+      if ((aAgg && bAgg && Math.random() < 0.5) || (rival && (aAgg||bAgg) && Math.random() < 0.6)){
+        a.beef[key] = (a.beef[key]||0)+1; b.beef[a.id] = (b.beef[a.id]||0)+1;
+      } else if (compatible(a,b)){
+        a.bond[key] = (a.bond[key]||0)+1; b.bond[a.id] = (b.bond[a.id]||0)+1;
+        if (a.bond[key] > 3 && a.friends.length < 5){
+          a.friends.push(b.id); b.friends.push(a.id);
+          a.needs.social = clamp(a.needs.social+0.08,0,1);
+          b.needs.social = clamp(b.needs.social+0.08,0,1);
+        }
+      }
+    }
+  }
+  // gangs form in the yard
+  if (sim.phase === 'YARD'){
+    for (const af of AFFILS){
+      if (sim.gangs.some(g => g.affil === af)) continue;
+      const cands = sim.inmates.filter(p =>
+        p.affil === af && !p.gangId && p.targetZone === 'yard' &&
+        p.traits.includes('leader') && p.state !== 'leaving');
+      const followers = sim.inmates.filter(p =>
+        p.affil === af && !p.gangId && p.targetZone === 'yard' && p.state !== 'leaving');
+      if (cands.length >= 1 && followers.length >= 3){
+        const leader = cands[0];
+        const members = followers.slice(0, 6).map(p => p.id);
+        const g = { id: sim.nextGangId++, affil: af, name: af.name, color: af.color,
+                    leader: leader.id, members, power: members.length };
+        for (const id of members){ const p = sim.inmates.find(r=>r.id===id); if (p) p.gangId = g.id; }
+        sim.gangs.push(g);
+        log('Gang formed: ' + af.name + ' (' + members.length + ' deep), led by ' + leader.name + '.', 'bad');
+      }
+    }
+    // recruitment
+    for (const g of sim.gangs){
+      const loners = sim.inmates.filter(p =>
+        p.affil === g.affil && !p.gangId && p.targetZone === 'yard' && p.state !== 'leaving');
+      for (const p of loners){
+        if (Math.random() < (sim.programs ? 0.10 : 0.25)){
+          p.gangId = g.id; g.members.push(p.id); g.power = g.members.length;
+          log(p.name + ' patched into the ' + g.name + '.', 'bad');
+        }
+      }
+    }
+  }
+  // gang tension
+  let tensionDelta = -0.0008;
+  const yardGangs = {};
+  for (const p of sim.inmates){
+    if (p.gangId && p.targetZone === 'yard'){ yardGangs[p.gangId] = true; }
+  }
+  const yg = Object.keys(yardGangs).length;
+  if (yg >= 2) tensionDelta += 0.0016 * yg;
+  sim.gangTension = clamp(sim.gangTension + tensionDelta, 0, 1);
+  // contraband circulation
+  for (const p of sim.inmates){
+    if (p.contra || p.state === 'leaving') continue;
+    if (p.targetZone === 'yard' || p.targetZone === 'workshop'){
+      const mod = (1 - 0.30*sim.cameras) * (sim.fence >= 2 ? 0.7 : 1);
+      if (Math.random() < 0.0022 * mod){
+        p.contra = Math.random() < 0.5 ? 'shank' : 'phone';
+      }
+    }
+  }
+}
+
+// ============================================================
+// FIGHTS & GUARDS
+// ============================================================
+function tickFights(dt){
+  // spark new fights
+  for (const a of sim.inmates){
+    if (a.state !== 'idle' && a.state !== 'moving') continue;
+    if (a.fightT > 0 || a.solitaryT > 0) continue;
+    for (const bid of Object.keys(a.beef)){
+      if ((a.beef[bid]||0) <= 2) continue;
+      const b = sim.inmates.find(r => r.id === Number(bid));
+      if (!b || (b.state !== 'idle' && b.state !== 'moving') || b.fightT > 0) continue;
+      if (dist(a.x,a.y,b.x,b.y) > 90) continue;
+      const aggr = (a.traits.includes('aggressive')?1:0) + (b.traits.includes('aggressive')?1:0);
+      let chance = 0.030 + 0.05*aggr + 0.08*sim.gangTension + 0.05*(1-moodOf(a));
+      if (a.contra === 'shank' || b.contra === 'shank') chance += 0.06;
+      chance *= (1 - 0.15*sim.cameras);
+      if (Math.random() < chance * dt / 10){
+        startFight(a, b);
+        break;
+      }
+    }
+  }
+  // active fights
+  for (const a of sim.inmates){
+    if (a.state !== 'fight') continue;
+    const b = sim.inmates.find(r => r.id === a.fightWith);
+    if (!b || b.state !== 'fight'){ endFight(a, false); continue; }
+    // circle each other (never stepping onto roofs)
+    const d = dist(a.x,a.y,b.x,b.y);
+    if (d > 18){
+      const ang = angTo(a.x,a.y,b.x,b.y);
+      const step = Math.min(28*dt, d-14);
+      const nx = a.x + Math.cos(ang)*step, ny = a.y + Math.sin(ang)*step;
+      if (isWalkable(nx, ny)){
+        a.x = nx; a.y = ny;
+        a.face = turnToward(a.face, ang, 0.4);
+      }
+    }
+    a.animT += dt*2.2;
+    a.fightT -= dt;
+    a.needs.safety = clamp(a.needs.safety - 0.01*dt, 0, 1);
+    a.needs.comfort = clamp(a.needs.comfort - 0.008*dt, 0, 1);
+    // witnesses lose safety
+    for (const w of sim.inmates){
+      if (w !== a && w !== b && dist(w.x,w.y,a.x,a.y) < 120)
+        w.needs.safety = clamp(w.needs.safety - 0.002*dt, 0, 1);
+    }
+    if (a.fightT <= 0) endFight(a, false);
+  }
+  // guards
+  for (const g of sim.guards){
+    g.animT += dt;
+    if (g.downT > 0){ g.downT -= dt; if (g.downT <= 0){ g.state = 'patrol'; g.path = []; } continue; }
+    if (g.state === 'patrol'){
+      if (!g.path.length){
+        const dest = pick(['yardW','yardE','cafS','cafC','plazaC','wN','eN','wK','shopW','shopE','gate']);
+        routeTo(g, dest, null);
+        g.state = 'moving-patrol';
+      } else if (moveAlong(g, dt, 95)){ g.state = 'patrol'; }
+      // notice fights
+      const fight = sim.inmates.find(p => p.state === 'fight' && !p.guardOnWay);
+      if (fight){
+        let responders = sim.guards.filter(x => x.state==='patrol'||x.state==='moving-patrol').slice(0,2);
+        for (const r of responders){ r.state = 'respond'; r.target = fight; fight.guardOnWay = true; routeTo(r, nearestNode(fight.x, fight.y), [fight.x, fight.y]); }
+      }
+      const riot = sim.riot.active;
+      if (riot){
+        const rioter = sim.inmates.find(p => p.state === 'riot');
+        if (rioter){ g.state = 'respond'; g.target = rioter; routeTo(g, nearestNode(rioter.x, rioter.y), [rioter.x, rioter.y]); }
+      }
+    } else if (g.state === 'moving-patrol'){
+      if (moveAlong(g, dt, 95)) g.state = 'patrol';
+      else {
+        const fight = sim.inmates.find(p => p.state === 'fight' && !p.guardOnWay);
+        if (fight){ g.state = 'respond'; g.target = fight; fight.guardOnWay = true; routeTo(g, nearestNode(fight.x, fight.y), [fight.x, fight.y]); }
+      }
+    } else if (g.state === 'respond'){
+      const t = g.target;
+      const valid = t && ((t.kind === 'inmate' && (t.state === 'fight' || t.state === 'riot')) || t.kind === 'guard');
+      if (!valid){ g.state = 'patrol'; g.path = []; g.target = null; continue; }
+      // re-aim final leg at the moving target
+      if (g.path.length <= 1) routeTo(g, nearestNode(t.x, t.y), [t.x, t.y]);
+      moveAlong(g, dt, 120);
+      if (dist(g.x, g.y, t.x, t.y) < 46){
+        g.state = 'subdue'; g.subdueT = 4; g.path = [];
+      }
+    } else if (g.state === 'subdue'){
+      g.subdueT -= dt;
+      const t = g.target;
+      if (t && t.kind === 'inmate' && (t.state === 'fight' || t.state === 'riot') && dist(g.x,g.y,t.x,t.y) < 60){
+        t.subdueT = (t.subdueT || 0) + dt;
+        if (t.state === 'fight' && t.subdueT > 3){ endFight(t, true); }
+        if (t.state === 'riot' && t.subdueT > 5){ subdueRioter(t); }
+      } else { g.state = 'patrol'; g.target = null; }
+      if (g.subdueT <= 0){ g.state = 'patrol'; g.target = null; }
+    }
+  }
+}
+function startFight(a, b){
+  a.state = 'fight'; b.state = 'fight';
+  a.fightWith = b.id; b.fightWith = a.id;
+  a.fightT = 9; b.fightT = 9; a.subdueT = 0; b.subdueT = 0;
+  a.path = []; b.path = [];
+  sim.recentFights++;
+  sim.gangTension = clamp(sim.gangTension + 0.04, 0, 1);
+  log('Fight: ' + a.name + ' vs ' + b.name + ' (' + zoneOf(a.x,a.y) + ').', 'bad');
+}
+function endFight(a, broken){
+  const b = sim.inmates.find(r => r.id === a.fightWith);
+  for (const p of [a, b]){
+    if (!p || p.state !== 'fight') continue;
+    p.state = 'idle'; p.fightWith = null; p.fightT = 0; p.guardOnWay = false;
+    p.needs.comfort = clamp(p.needs.comfort - 0.22, 0, 1);
+    p.needs.safety = clamp(p.needs.safety - 0.15, 0, 1);
+    if (broken && Math.random() < 0.35){
+      p.solitaryT = 720;
+      log(p.name + ' thrown in solitary (12h).', 'bad');
+    }
+    assignTarget(p, true);
+  }
+  if (broken) log('Guards broke up the fight.', 'info');
+}
+
+// ============================================================
+// RIOTS
+// ============================================================
+function updateRiotRisk(){
+  const ps = sim.inmates.filter(p => p.state !== 'leaving');
+  const avgUnhappy = ps.length ? ps.reduce((s,p) => s + (1-moodOf(p)), 0) / ps.length : 0;
+  const cap = capacity();
+  const overcrowd = clamp((ps.length - cap*0.9) / (cap*0.3), 0, 1);
+  sim.riotRisk = clamp(
+    0.30*avgUnhappy + 0.25*overcrowd + 0.25*sim.gangTension +
+    0.10*sim.shakeRecent + 0.10*Math.min(1, sim.recentFights/3), 0, 1);
+}
+function riskLabel(){
+  const r = sim.riotRisk;
+  if (r < 0.35) return 'LOW'; if (r < 0.60) return 'GUARDED';
+  if (r < 0.80) return 'HIGH'; return 'CRITICAL';
+}
+function startRiot(){
+  const ps = sim.inmates.filter(p => p.state !== 'leaving' && p.solitaryT <= 0);
+  const n = Math.max(4, Math.floor(ps.length * rand(0.35, 0.55)));
+  const shuffled = ps.slice().sort(() => Math.random() - 0.5).slice(0, n);
+  sim.riot = { active:true };
+  for (const p of shuffled){
+    p.state = 'riot'; p.path = []; p.subdueT = 0;
+    p.riotTarget = null;
+  }
+  // everyone else to cells if warden lockdown, else they cower in place
+  log('RIOT! ' + n + ' inmates are tearing the prison apart!', 'bad');
+}
+function subdueRioter(p){
+  p.state = 'idle'; p.subdueT = 0; p.riotTarget = null;
+  p.solitaryT = Math.random() < 0.5 ? 1440 : 0;
+  p.needs.comfort = clamp(p.needs.comfort - 0.3, 0, 1);
+  log(p.name + ' subdued by guards.', 'info');
+  assignTarget(p, true);
+}
+function tickRiot(dt){
+  if (!sim.riot.active){
+    if (sim.riotRisk > 0.75 && Math.random() < 0.004*dt) startRiot();
+    return;
+  }
+  const rioters = sim.inmates.filter(p => p.state === 'riot');
+  if (!rioters.length){
+    sim.riot = { active:false };
+    sim.gangTension = clamp(sim.gangTension + 0.2, 0, 1);
+    log('Riot over. The dust settles.', 'info');
+    assignAllTargets(true);
+    return;
+  }
+  const subdueMul = sim.lockdown ? 2.2 : 1;
+  for (const p of rioters){
+    p.animT += dt*2.2;
+    // pick target: nearest standing guard, else smash nearby
+    if (!p.riotTarget || Math.random() < 0.02){
+      let bg = null, bd = 1e18;
+      for (const g of sim.guards){
+        if (g.downT > 0) continue;
+        const d = dist(p.x,p.y,g.x,g.y);
+        if (d < bd){ bd = d; bg = g; }
+      }
+      p.riotTarget = bg;
+    }
+    const g = p.riotTarget;
+    if (g && g.downT <= 0){
+      const d = dist(p.x,p.y,g.x,g.y);
+      if (d < 30){
+        g.downT = 60; g.state = 'down'; g.path = [];
+        log(g.name + ' injured by rioters!', 'bad');
+        p.riotTarget = null;
+      } else {
+        if (!p.path.length || sim.tickCount % 30 === 0) routeTo(p, nearestNode(g.x, g.y), [g.x, g.y]);
+        moveAlong(p, dt*subdueMul, 70);
+      }
+    } else {
+      // smash: jitter around, damage funds
+      if (!p.path.length){
+        const z = pick(['yard','cafeteria']);
+        const spot = z === 'yard' ? yardSpot() : [rand(800,1150), rand(650,755)];
+        routeTo(p, nearestNode(spot[0], spot[1]), spot);
+      }
+      moveAlong(p, dt, 60);
+      sim.funds = Math.max(0, sim.funds - 0.8*dt);
+    }
+    // escape attempts at low fence
+    if (sim.fence === 1 && Math.random() < 0.0015*dt){
+      removeInmate(p, p.name + ' escaped during the riot!');
+      continue;
+    }
+    for (const q of sim.inmates){
+      if (q !== p && q.state !== 'riot' && q.state !== 'leaving' && dist(q.x,q.y,p.x,p.y) < 110)
+        q.needs.safety = clamp(q.needs.safety - 0.004*dt, 0, 1);
+    }
+  }
+}
+function removeInmate(p, msg){
+  sim.inmates = sim.inmates.filter(q => q.id !== p.id);
+  if (sim.selected === p.id) sim.selected = null;
+  if (msg) log(msg, 'bad');
+}
+
+// ============================================================
+// ECONOMY + INTAKE
+// ============================================================
+function midnight(){
+  const pop = sim.inmates.length;
+  const income = 150 * pop;
+  const wages = 200 * sim.guards.length;
+  sim.funds += income - wages;
+  if (sim.funds < 0){ sim.funds = 0; log('Treasury empty! Funding crisis.', 'bad'); }
+  log('Day ' + sim.day + ' funding: +' + fmtMoney(income) + ' / wages -' + fmtMoney(wages) + '.', 'info');
+  // intake bus every 3 days
+  if (sim.day % 3 === 1){
+    const cap = capacity();
+    const room = cap - sim.inmates.length;
+    if (room > 0){
+      const n = Math.min(randi(2,4), room);
+      const open = openBlocks();
+      for (let i = 0; i < n; i++){
+        // find a block with space
+        const b = open.find(bk => sim.inmates.filter(p => p.block === BLOCKS.indexOf(bk)).length < BLOCK_CAP) || open[0];
+        const bi = BLOCKS.indexOf(b);
+        const used = sim.inmates.filter(p => p.block === bi).map(p => p.cellIdx);
+        let ci = 0; while (used.includes(ci)) ci++;
+        const p = makeInmate(bi, ci);
+        p.x = NODES.gate[0]; p.y = NODES.gate[1];
+        sim.inmates.push(p);
+        assignTarget(p, true);
+      }
+      log('Intake bus: ' + n + ' new inmates arrived.', 'info');
+    }
+  }
+}
+
+// ============================================================
+// MAIN TICK — dt in game-minutes
+// ============================================================
+function tick(dt){
+  sim.tickCount++;
+  const prevPhase = sim.phase;
+  sim.minutes += dt;
+  if (sim.minutes >= 1440){ sim.minutes -= 1440; sim.day++; midnight(); }
+  const hour = sim.minutes / 60;
+  sim.phase = phaseAt(hour).name;
+  if (sim.phase !== prevPhase){
+    assignAllTargets(true);
+    if (sim.phase !== 'SLEEP') log('— ' + phaseAt(hour).label + ' —', 'dim');
+  }
+  if (sim.shakedownCd > 0) sim.shakedownCd -= dt;
+  sim.shakeRecent = Math.max(0, sim.shakeRecent - dt/1440);
+  if (sim.tickCount % 20 === 0) sim.recentFights = Math.max(0, sim.recentFights - 1);
+
+  for (const p of sim.inmates){
+    if (p.state === 'leaving'){
+      if (moveAlong(p, dt, 70)){
+        removeInmate(p, p.name + ' transferred out.');
+      }
+      continue;
+    }
+    if (p.solitaryT > 0){
+      p.solitaryT -= dt;
+      // stays in cell
+      const b = BLOCKS[p.block], s = cellSpot(b, p.cellIdx);
+      p.x = s[0]; p.y = s[1]; p.path = [];
+      if (p.solitaryT <= 0){ log(p.name + ' released from solitary.', 'info'); assignTarget(p, true); }
+    } else if (p.state === 'moving'){
+      if (moveAlong(p, dt, 60)) p.state = 'idle';
+    } else if (p.state === 'idle'){
+      p.animT += dt;
+      // small idle drift inside current zone (direct short hop, stays walkable)
+      if (Math.random() < 0.02*dt && p.spotTarget){
+        const s = [p.spotTarget[0] + rand(-30,30), p.spotTarget[1] + rand(-30,30)];
+        if (isWalkable(s[0], s[1]) && dist(p.x,p.y,s[0],s[1]) < 120){ setPath(p, [s]); p.state = 'moving'; }
+      }
+    }
+    tickNeeds(p, dt);
+  }
+  if (sim.tickCount % 20 === 0) tickSocial();
+  tickFights(dt);
+  tickRiot(dt);
+  if (sim.tickCount % 10 === 0) updateRiotRisk();
+}
+
+// ============================================================
+// WARDEN ACTIONS
+// ============================================================
+function spend(n){ if (sim.funds < n) return false; sim.funds -= n; return true; }
+const W = {
+  reopenBlock(i){
+    const b = BLOCKS[i];
+    if (!b || b.open) return false;
+    if (!spend(8000)){ toast('Not enough funds.', true); return false; }
+    b.open = true;
+    // move overflow inmates in
+    log('Cell Block ' + b.name + ' reopened (+60 capacity).', 'info');
+    toast('Cell Block ' + b.name + ' reopened.');
+    assignAllTargets(true);
+    return true;
+  },
+  upgradeFence(){
+    const cost = sim.fence === 1 ? 5000 : sim.fence === 2 ? 12000 : 0;
+    if (!cost){ toast('Fence already maxed.', true); return false; }
+    if (!spend(cost)){ toast('Not enough funds.', true); return false; }
+    sim.fence++;
+    log('Perimeter fence upgraded to level ' + sim.fence + '.', 'info');
+    toast('Fence upgraded to level ' + sim.fence + '.');
+    return true;
+  },
+  addCameras(){
+    const cost = sim.cameras === 0 ? 4000 : sim.cameras === 1 ? 8000 : 0;
+    if (!cost){ toast('Cameras already maxed.', true); return false; }
+    if (!spend(cost)){ toast('Not enough funds.', true); return false; }
+    sim.cameras++;
+    log('Camera network upgraded to level ' + sim.cameras + '.', 'info');
+    toast('Cameras upgraded to level ' + sim.cameras + '.');
+    return true;
+  },
+  addPrograms(){
+    if (sim.programs){ toast('Programs already active.', true); return false; }
+    if (!spend(6000)){ toast('Not enough funds.', true); return false; }
+    sim.programs = true;
+    log('Reform programs started: classes, counseling, yard leagues.', 'info');
+    toast('Reform programs active.');
+    return true;
+  },
+  hireGuard(){
+    if (!spend(500)){ toast('Not enough funds.', true); return false; }
+    const g = makeGuard();
+    sim.guards.push(g);
+    log(g.name + ' hired.', 'info');
+    toast('Guard hired.');
+    return true;
+  },
+  fireGuard(id){
+    if (sim.guards.length <= 2){ toast('Minimum 2 guards required.', true); return false; }
+    const g = sim.guards.find(x => x.id === id);
+    if (!g) return false;
+    sim.guards = sim.guards.filter(x => x.id !== id);
+    log(g.name + ' dismissed.', 'info');
+    return true;
+  },
+  shakedown(){
+    if (sim.shakedownCd > 0){ toast('Shakedown on cooldown.', true); return false; }
+    sim.shakedownCd = 1440;
+    let found = 0;
+    for (const p of sim.inmates){
+      if (p.contra && Math.random() < 0.75){ p.contra = null; found++; }
+      p.needs.comfort = clamp(p.needs.comfort - 0.12, 0, 1);
+      p.needs.safety = clamp(p.needs.safety - 0.06, 0, 1);
+    }
+    sim.shakeRecent = 1;
+    log('Shakedown complete: ' + found + ' contraband items seized. Inmates are furious.', 'bad');
+    toast('Shakedown: ' + found + ' items seized.');
+    return true;
+  },
+  toggleLockdown(){
+    sim.lockdown = !sim.lockdown;
+    log(sim.lockdown ? 'LOCKDOWN ordered. All inmates to cells.' : 'Lockdown lifted.', sim.lockdown ? 'bad' : 'info');
+    toast(sim.lockdown ? 'LOCKDOWN in effect.' : 'Lockdown lifted.');
+    assignAllTargets(true);
+    return sim.lockdown;
+  },
+  solitary(id){
+    const p = sim.inmates.find(x => x.id === id);
+    if (!p) return false;
+    p.solitaryT = 1440; p.state = 'idle'; p.path = []; p.fightWith = null;
+    const b = BLOCKS[p.block], s = cellSpot(b, p.cellIdx);
+    p.x = s[0]; p.y = s[1];
+    log(p.name + ' sent to solitary (24h).', 'bad');
+    toast(p.name.split(' ')[0] + ' → solitary 24h.');
+    return true;
+  },
+  transfer(id){
+    const p = sim.inmates.find(x => x.id === id);
+    if (!p) return false;
+    if (!spend(500)){ toast('Not enough funds.', true); return false; }
+    p.state = 'leaving'; p.path = []; p.fightWith = null;
+    routeTo(p, 'gate', [NODES.gate[0], NODES.gate[1] + 40]);
+    log(p.name + ' approved for transfer. Escorting to the gate.', 'info');
+    toast(p.name.split(' ')[0] + ' being transferred.');
+    return true;
+  },
+};
+
+// test / debug hooks (also used by UI)
+function inmateAt(x, y){
+  let best = null, bd = 20;
+  for (const p of sim.inmates){
+    const d = dist(x, y, p.x, p.y - 12);
+    if (d < bd){ bd = d; best = p; }
+  }
+  return best;
+}
+function debugRiot(){ startRiot(); }
+
+globalThis.__lockdown = {
+  newGame, tick, W, sim: () => sim,
+  inmateAt, isWalkable, debugRiot, startFight,
+  BLOCKS, NODES, ZONES,
+  version: 3,
+};
+
+// no-op until the browser UI overrides it
+function toast(msg, bad){}
+
+// ============================================================
+// RENDER — the mockup image IS the map; entities live INSIDE it.
+// ============================================================
+function rr(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
+}
+
+function drawShadow(ctx, x, y){
+  // clearly visible soft contact shadow, offset east/northeast (late-afternoon sun)
+  ctx.fillStyle = 'rgba(0,0,0,0.16)';
+  ctx.beginPath(); ctx.ellipse(x+7, y+2, 16, 7, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath(); ctx.ellipse(x+7, y+2, 11, 5, 0, 0, Math.PI*2); ctx.fill();
+}
+
+// A tiny person in 3/4 top-down view, ~27px tall — matches the scale and
+// look of the figures baked into the mockup: head with skin tone + hair,
+// orange jumpsuit (or guard uniform) with warm key-light shading, simple
+// legs and arm hints, facing the travel direction.
+function drawFigure(ctx, e, now){
+  const moving = (e.path && e.path.length > 0) || e.state === 'fight' || e.state === 'riot' ||
+                 e.state === 'respond' || e.state === 'moving-patrol';
+  const wob = moving ? Math.sin(e.animT * 9) : 0;                    // walk cycle
+  const bob = moving ? Math.abs(Math.sin(e.animT * 9)) * -1.6
+                     : Math.sin(e.animT * 1.8 + e.id) * 0.6;          // bob / idle sway
+  const fx = Math.cos(e.face), fy = Math.sin(e.face);
+  const isGuard = e.kind === 'guard';
+  const down = isGuard && e.downT > 0;
+
+  drawShadow(ctx, e.x, e.y);
+
+  ctx.save();
+  ctx.translate(e.x, e.y + bob * 0.4);
+  if (down) ctx.rotate(Math.PI/2 * 0.9);
+  const lean = moving ? 1.6 : 0.6;                                  // lean into travel
+  const lx = fx * lean;
+
+  const uniform  = isGuard ? '#2e3d5c' : '#e8722a';
+  const uniformD = isGuard ? '#232e48' : '#c85f1d';
+  const pants    = isGuard ? '#1c2436' : '#8a4a16';
+  const skin     = isGuard ? e.skin : SKIN[e.id % SKIN.length];
+
+  // legs — alternate while walking
+  const legSwing = moving && !down ? wob * 2.2 : 0;
+  ctx.fillStyle = pants;
+  rr(ctx, -4.6 + legSwing*0.5, -9, 3.8, 8.5, 1.6); ctx.fill();
+  rr(ctx,  0.8 - legSwing*0.5, -9, 3.8, 8.5, 1.6); ctx.fill();
+  // shoes
+  ctx.fillStyle = 'rgba(25,18,12,0.9)';
+  ctx.beginPath(); ctx.ellipse(-2.7 + legSwing*0.5, -1.2, 2.6, 1.7, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse( 2.7 - legSwing*0.5, -1.2, 2.6, 1.7, 0, 0, Math.PI*2); ctx.fill();
+
+  // torso (jumpsuit / uniform) with warm key-light shading
+  const tx = lx, ty = -19;
+  ctx.fillStyle = down ? '#6a6f7a' : uniform;
+  rr(ctx, tx-5.5, ty, 11, 12, 4); ctx.fill();
+  const lg = ctx.createLinearGradient(tx-5.5, 0, tx+5.5, 0);
+  lg.addColorStop(0, 'rgba(255,205,150,0.40)');
+  lg.addColorStop(0.5, 'rgba(255,205,150,0)');
+  lg.addColorStop(1, 'rgba(38,22,58,0.30)');
+  ctx.fillStyle = lg;
+  rr(ctx, tx-5.5, ty, 11, 12, 4); ctx.fill();
+  // collar
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(tx-2.2, ty+1, 4.4, 3);
+  if (e.state === 'riot'){ ctx.fillStyle = 'rgba(200,30,30,0.25)'; rr(ctx, tx-5.5, ty, 11, 12, 4); ctx.fill(); }
+
+  // arms — swing opposite the legs
+  const armSwing = moving && !down ? -wob * 2.0 : 0;
+  ctx.fillStyle = down ? '#6a6f7a' : uniformD;
+  rr(ctx, tx-8 + armSwing*0.4,   ty+2, 3.2, 8, 1.5); ctx.fill();
+  rr(ctx, tx+4.8 - armSwing*0.4, ty+2, 3.2, 8, 1.5); ctx.fill();
+  // hands
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(tx-6.4 + armSwing*0.4, ty+10.5, 1.7, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(tx+6.4 - armSwing*0.4, ty+10.5, 1.7, 0, Math.PI*2); ctx.fill();
+
+  // head — skin tone, offset toward facing so they face travel direction
+  const hx = tx + fx*2.4, hy = ty - 4.5 + fy*1.4;
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(hx, hy, 3.6, 0, Math.PI*2); ctx.fill();
+  // hair (dark cap on the back/top of the head)
+  ctx.fillStyle = 'rgba(32,22,14,0.92)';
+  ctx.beginPath(); ctx.arc(hx - fx*1.2, hy - 1.3, 3.6, Math.PI*0.95, Math.PI*2.05); ctx.fill();
+  // warm rim light on the sun side of the head
+  ctx.fillStyle = 'rgba(255,210,160,0.35)';
+  ctx.beginPath(); ctx.arc(hx-1.1, hy, 3.6, Math.PI*0.55, Math.PI*1.45); ctx.fill();
+
+  if (isGuard){
+    ctx.fillStyle = '#141a26';                                      // cap
+    ctx.fillRect(hx-3.8, hy-7, 7.6, 3.2);
+    ctx.fillStyle = '#f5b942';                                      // badge
+    ctx.beginPath(); ctx.arc(tx+3.4, ty+5.5, 1.3, 0, Math.PI*2); ctx.fill();
+  } else {
+    const g = e.gangId ? sim.gangs.find(x => x.id === e.gangId) : null;
+    if (g){ ctx.fillStyle = g.color; ctx.fillRect(hx-3.6, hy-3.2, 7.2, 2.5); }  // bandana
+    if (e.contra){ ctx.fillStyle = 'rgba(20,20,20,0.9)'; ctx.fillRect(tx+4.2, ty+6, 2.2, 4.5); } // shank bulge
+  }
+  ctx.restore();
+
+  // status rings (unrotated, screen-aligned)
+  if (e.state === 'fight'){
+    ctx.strokeStyle = 'rgba(255,70,70,' + (0.55 + 0.4*Math.sin(now*7)).toFixed(2) + ')';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(e.x, e.y - 12, 14, 0, Math.PI*2); ctx.stroke();
+  }
+  if (sim.selected === e.id){
+    ctx.strokeStyle = '#f5b942'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(e.x, e.y - 12, 17, 0, Math.PI*2); ctx.stroke();
+  }
+}
+
+function tintFor(hour){
+  if (hour >= 20 || hour < 5)  return 'rgba(10,18,55,0.50)';  // night
+  if (hour >= 5  && hour < 7)  return 'rgba(255,150,80,0.18)';// dawn
+  if (hour >= 7  && hour < 11) return 'rgba(255,205,150,0.07)';
+  if (hour >= 11 && hour < 16) return 'rgba(255,220,170,0.03)';
+  if (hour >= 16 && hour < 19) return 'rgba(255,160,90,0.10)';// golden
+  return 'rgba(255,120,60,0.16)';                             // dusk
+}
+const TOWERS = [[509,168],[1484,163]];  // measured in the mockup
+
+function render(ctx, cw, ch, now){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle = '#07080b';
+  ctx.fillRect(0, 0, cw, ch);
+  const scale = Math.min(cw / IMG_W, ch / IMG_H);
+  const iw = IMG_W * scale, ih = IMG_H * scale;
+  const ox = (cw - iw) / 2, oy = (ch - ih) / 2;
+  ctx.setTransform(scale, 0, 0, scale, ox, oy);
+
+  if (typeof bgImg !== 'undefined' && bgImg && bgImg.complete && bgImg.naturalWidth){
+    ctx.drawImage(bgImg, 0, 0, IMG_W, IMG_H);
+  } else {
+    ctx.fillStyle = '#5a6b46'; ctx.fillRect(0, 0, IMG_W, IMG_H);
+    ctx.fillStyle = '#6e7f55'; ctx.fillRect(120, 90, 1680, 1100);
+  }
+
+  // painter's algorithm: draw by ground Y so nearer figures overlap farther ones
+  const list = [];
+  for (const p of sim.inmates) list.push(p);
+  for (const g of sim.guards) list.push(g);
+  list.sort((a,b) => a.y - b.y);
+  const order = [];
+  for (const e of list){ drawFigure(ctx, e, now); order.push(e.y); }
+  __lockdown.lastDraw = order;
+
+  const hour = sim.minutes / 60;
+  const night = (hour >= 20 || hour < 5);
+  if (night){
+    // tower spotlight cones sweeping the yard
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < TOWERS.length; i++){
+      const tx = TOWERS[i][0], ty = TOWERS[i][1];
+      const sweep = Math.sin(now * 0.5 + i * 2.4) * 0.35;
+      const dirx = (960 - tx), diry = (420 - ty);
+      const len = Math.sqrt(dirx*dirx + diry*diry);
+      const nx = dirx/len, ny = diry/len;
+      const px = -ny, py = nx;
+      const spread = 130 + sweep * 160;
+      const grad = ctx.createRadialGradient(tx, ty, 10, tx, ty, 420);
+      grad.addColorStop(0, 'rgba(255,240,200,0.20)');
+      grad.addColorStop(1, 'rgba(255,240,200,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(tx + nx*420 + px*spread, ty + ny*420 + py*spread);
+      ctx.lineTo(tx + nx*420 - px*spread, ty + ny*420 - py*spread);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // time-of-day grade
+  ctx.fillStyle = tintFor(hour);
+  ctx.fillRect(0, 0, IMG_W, IMG_H);
+
+  // vignette
+  const vg = ctx.createRadialGradient(IMG_W/2, IMG_H/2, IMG_H*0.35, IMG_W/2, IMG_H/2, IMG_H*0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.34)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, IMG_W, IMG_H);
+  ctx.setTransform(1,0,0,1,0,0);
+  return { ox, oy, scale, iw, ih };
+}
+__lockdown.render = render;
+var bgImg = null;   // assigned by the browser UI below
+
+// frame-loop style advancement (respects pause + speed), usable in tests too
+__lockdown.advance = function(dtRealSec){
+  let steps = 0;
+  if (!sim.paused){
+    let a = dtRealSec * 3 * sim.speed;
+    while (a >= 1 && steps < 200000){ tick(1); a -= 1; steps++; }
+  }
+  return steps;
+};
+
+// ============================================================
+// BROWSER UI
+// ============================================================
+if (typeof document !== 'undefined' && document.getElementById('game')){
+(function(){
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  // responsive type tweaks
+  const st = document.createElement('style');
+  st.textContent = '.cover .big{font-size:clamp(14px,2.4vw,24px)}' +
+    '.cover .label{font-size:clamp(8px,1.2vw,11px)}' +
+    '#cover-clock .big{font-size:clamp(11px,1.9vw,20px)}' +
+    '#cover-risk .warn{font-size:clamp(11px,1.8vw,16px)}' +
+    '.tbtn{padding:10px 12px;font-size:clamp(10px,1.5vw,14px);min-height:44px}';
+  document.head.appendChild(st);
+
+  if (typeof Image !== 'undefined'){ bgImg = new Image(); bgImg.src = 'assets/prison-bg.webp'; }
+
+  function imgRect(){
+    const cw = canvas.width, ch = canvas.height;
+    const scale = Math.min(cw/IMG_W, ch/IMG_H);
+    const iw = IMG_W*scale, ih = IMG_H*scale;
+    return { ox:(cw-iw)/2, oy:(ch-ih)/2, scale, iw, ih };
+  }
+
+  // baked-in UI spots, measured in image px @1920x1280: [x, y, w, h]
+  const COVERS = {
+    stats:   [19,17,358,219],
+    clock:   [706,12,529,73],
+    risk:    [1586,16,317,123],
+    toolbar: [19,1216,700,53],
+  };
+  function layoutUI(){
+    const r = imgRect();
+    const px = v => v/IMG_W*r.iw, py = v => v/IMG_H*r.ih;
+    const s = document.getElementById('cover-stats');
+    s.style.left = (r.ox + px(COVERS.stats[0]))+'px'; s.style.top = (r.oy + py(COVERS.stats[1]))+'px';
+    s.style.width = px(COVERS.stats[2])+'px'; s.style.minHeight = py(COVERS.stats[3])+'px';
+    const c = document.getElementById('cover-clock');
+    c.style.left = (r.ox + px(COVERS.clock[0]))+'px';
+    c.style.top = (r.oy + py(COVERS.clock[1]))+'px';
+    c.style.width = px(COVERS.clock[2])+'px'; c.style.minHeight = py(COVERS.clock[3])+'px';
+    c.style.transform = 'none';
+    const k = document.getElementById('cover-risk');
+    k.style.right = (canvas.width - (r.ox + px(COVERS.risk[0]+COVERS.risk[2])))+'px';
+    k.style.top = (r.oy + py(COVERS.risk[1]))+'px';
+    k.style.width = px(COVERS.risk[2])+'px'; k.style.minHeight = py(COVERS.risk[3])+'px';
+    const t = document.getElementById('cover-toolbar');
+    t.style.left = (r.ox + px(COVERS.toolbar[0]))+'px';
+    t.style.bottom = (canvas.height - (r.oy + py(COVERS.toolbar[1]+COVERS.toolbar[3])))+'px';
+    t.style.minWidth = px(561)+'px';
+    positionMenu();
+  }
+  function sizeCanvas(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; layoutUI(); }
+  window.addEventListener('resize', sizeCanvas);
+
+  // ---- toasts (override the no-op) ----
+  toast = function(msg, bad){
+    const box = document.getElementById('toasts');
+    const d = document.createElement('div');
+    d.className = 'toast' + (bad ? ' bad' : '');
+    d.textContent = msg;
+    box.appendChild(d);
+    while (box.children.length > 3) box.removeChild(box.firstChild);
+    setTimeout(function(){ if (d.parentNode) d.parentNode.removeChild(d); }, 4200);
+  };
+
+  // ---- HUD ----
+  function updateHUD(){
+    document.getElementById('stat-pop').textContent = sim.inmates.length + ' / ' + capacity();
+    document.getElementById('stat-funds').textContent = fmtMoney(sim.funds);
+    const h = Math.floor(sim.minutes/60), m = Math.floor(sim.minutes%60);
+    document.getElementById('clock-day').textContent = 'DAY ' + sim.day;
+    document.getElementById('clock-time').textContent = pad2(h)+':'+pad2(m);
+    document.getElementById('clock-phase').textContent = phaseAt(h).label;
+    const lbl = riskLabel();
+    const rl = document.getElementById('risk-label');
+    rl.textContent = lbl;
+    rl.style.color = lbl==='LOW' ? '#7fd069' : lbl==='GUARDED' ? '#f5b942' : '#e05252';
+    document.getElementById('riskfill').style.width = Math.round(sim.riotRisk*100)+'%';
+    document.getElementById('risk-stab').textContent = Math.round((1-sim.riotRisk)*100)+'%';
+    const bp = document.getElementById('btn-pause');
+    bp.innerHTML = sim.paused ? '▶ RESUME' : '⏸ PAUSE';
+    bp.classList.toggle('on', sim.paused);
+    document.getElementById('btn-speed').textContent = '▶ SPEED ' + sim.speed + 'x';
+    document.getElementById('btn-actions').classList.toggle('on', sim.lockdown);
+  }
+
+  // ---- menus ----
+  const menuEl = document.getElementById('menu');
+  let menuOpen = null;
+  function positionMenu(){
+    const r = imgRect();
+    menuEl.style.left = '12px';
+    menuEl.style.bottom = (canvas.height - (r.oy + (COVERS.toolbar[1]+COVERS.toolbar[3])/IMG_H*r.ih) + 12)+'px';
+  }
+  function closeMenu(){ menuEl.style.display = 'none'; menuOpen = null; }
+  function mItem(label, sub, cost, fn, disabled){
+    return '<button class="mitem" ' + (disabled?'disabled':'') + ' data-i="' + mItems.length + '">' +
+      '<span>' + label + (sub ? '<small>'+sub+'</small>' : '') + '</span>' +
+      (cost ? '<span class="cost">'+cost+'</span>' : '') + '</button>';
+  }
+  let mItems = [];
+  function showMenu(title, items){
+    mItems = items;
+    let h = '<button class="mclose" id="mclose">✕</button><h3>'+title+'</h3>';
+    items.forEach(function(it){ h += mItem(it[0], it[1], it[2], null, it[4]); });
+    menuEl.innerHTML = h;
+    menuEl.style.display = 'block';
+    document.getElementById('mclose').onclick = closeMenu;
+    const btns = menuEl.querySelectorAll('.mitem');
+    btns.forEach(function(b){
+      b.onclick = function(){
+        const it = mItems[Number(b.getAttribute('data-i'))];
+        if (it[3]) it[3]();
+        refreshMenu();
+      };
+    });
+  }
+  function refreshMenu(){ if (menuOpen) openMenu(menuOpen, true); updateHUD(); }
+  function openMenu(name, keep){
+    if (!keep && menuOpen === name){ closeMenu(); return; }
+    menuOpen = name;
+    if (name === 'build'){
+      const items = [];
+      BLOCKS.forEach(function(b, i){
+        if (!b.open) items.push(['Reopen Cell Block ' + b.name, '+60 capacity', '$8,000', function(){ W.reopenBlock(i); }]);
+      });
+      const fc = sim.fence === 1 ? '$5,000' : sim.fence === 2 ? '$12,000' : null;
+      items.push(['Perimeter Fence → Level ' + Math.min(3, sim.fence+1),
+        sim.fence >= 3 ? 'Maximum security' : 'Fewer escapes, less contraband', fc || 'MAX',
+        function(){ W.upgradeFence(); }, sim.fence >= 3]);
+      const cc = sim.cameras === 0 ? '$4,000' : sim.cameras === 1 ? '$8,000' : null;
+      items.push(['Camera Network → Level ' + Math.min(2, sim.cameras+1),
+        sim.cameras >= 2 ? 'Full coverage' : 'Spot fights & contraband sooner', cc || 'MAX',
+        function(){ W.addCameras(); }, sim.cameras >= 2]);
+      items.push(['Reform Programs', sim.programs ? 'Active: classes, counseling, leagues' : 'Calmer inmates, weaker gangs',
+        sim.programs ? 'ACTIVE' : '$6,000', function(){ W.addPrograms(); }, sim.programs]);
+      showMenu('BUILD', items);
+    } else if (name === 'staff'){
+      const items = [['Hire Guard', '$500 signing + $200/day wages', '$500', function(){ W.hireGuard(); }]];
+      sim.guards.forEach(function(g){
+        items.push([g.name, g.downT > 0 ? 'Injured' : 'On duty', 'FIRE', function(){ W.fireGuard(g.id); }]);
+      });
+      showMenu('STAFF (' + sim.guards.length + ')', items);
+    } else if (name === 'actions'){
+      const sel = sim.inmates.find(p => p.id === sim.selected);
+      const cd = sim.shakedownCd > 0 ? 'Cooldown ' + Math.ceil(sim.shakedownCd/60) + 'h' : 'Ready';
+      showMenu('WARDEN ACTIONS', [
+        ['Shakedown', 'Seize contraband. Inmates will hate it. (' + cd + ')', 'FREE',
+          function(){ W.shakedown(); }, sim.shakedownCd > 0],
+        [sim.lockdown ? 'Lift Lockdown' : 'Order Lockdown', 'Everyone to cells. Ends trouble, breeds resentment.', 'FREE',
+          function(){ W.toggleLockdown(); }],
+        ['Solitary — ' + (sel ? sel.name : 'no one selected'), 'Select an inmate, then isolate 24h', 'FREE',
+          function(){ if (sel) W.solitary(sel.id); }, !sel],
+        ['Transfer — ' + (sel ? sel.name : 'no one selected'), 'Remove a problem inmate for good', '$500',
+          function(){ if (sel){ W.transfer(sel.id); closeProfile(); } }, !sel],
+      ]);
+    } else if (name === 'reports'){
+      showMenu('REPORTS', []);
+      reportsTab('inmates');
+    }
+  }
+  function reportsTab(tab){
+    const tabs = '<div class="tabs">' +
+      ['inmates','gangs','log'].map(function(t){
+        return '<div class="tab' + (t===tab?' on':'') + '" data-t="'+t+'">'+t.toUpperCase()+'</div>';
+      }).join('') + '</div>';
+    let body = '';
+    if (tab === 'inmates'){
+      const rows = sim.inmates.slice().sort(function(a,b){ return a.name.localeCompare(b.name); });
+      body = rows.map(function(p){
+        const g = p.gangId ? sim.gangs.find(x => x.id===p.gangId) : null;
+        return '<div class="rrow" data-id="'+p.id+'"><span class="dot" style="background:'+(g?g.color:'#e8722a')+'"></span>' +
+          '<span class="nm">'+p.name+'</span><span class="st">'+zoneOf(p.x,p.y)+(p.solitaryT>0?' • SOLITARY':'')+'</span></div>';
+      }).join('') || '<div class="logrow">No inmates.</div>';
+    } else if (tab === 'gangs'){
+      body = sim.gangs.map(function(g){
+        const lead = sim.inmates.find(p => p.id===g.leader);
+        return '<div class="rrow"><span class="dot" style="background:'+g.color+'"></span>' +
+          '<span class="nm">'+g.name+'</span><span class="st">'+g.members.length+' members' +
+          (lead ? ' • '+lead.name.split(' ')[0] : '') + '</span></div>';
+      }).join('') || '<div class="logrow">No gangs yet. Watch the yard.</div>';
+      body += '<div class="logrow"><span class="lt">TENSION</span>' + Math.round(sim.gangTension*100) + '%</div>';
+    } else {
+      body = sim.log.map(function(l){
+        return '<div class="logrow"><span class="lt">D'+l.day+' '+l.time+'</span>'+l.msg+'</div>';
+      }).join('');
+    }
+    menuEl.innerHTML = '<button class="mclose" id="mclose">✕</button><h3>REPORTS</h3>' + tabs + body;
+    document.getElementById('mclose').onclick = closeMenu;
+    menuEl.querySelectorAll('.tab').forEach(function(t){ t.onclick = function(){ reportsTab(t.getAttribute('data-t')); }; });
+    menuEl.querySelectorAll('.rrow[data-id]').forEach(function(r){
+      r.onclick = function(){
+        const p = sim.inmates.find(x => x.id === Number(r.getAttribute('data-id')));
+        if (p){ closeMenu(); openProfile(p); }
+      };
+    });
+  }
+
+  // ---- profile card ----
+  const profEl = document.getElementById('profile');
+  function needBar(label, v){
+    const c = v > 0.6 ? '#7fd069' : v > 0.35 ? '#f5b942' : '#e05252';
+    return '<div class="needrow"><span class="nl">'+label+'</span><div class="needbar"><div class="needfill" style="width:'+
+      Math.round(v*100)+'%;background:'+c+'"></div></div></div>';
+  }
+  function openProfile(p){
+    sim.selected = p.id;
+    const g = p.gangId ? sim.gangs.find(x => x.id===p.gangId) : null;
+    let h = '<button class="mclose" id="pclose">✕</button>';
+    h += '<h2>'+p.name+'</h2><div class="sub">' + p.crime + ' • ' + p.sentence + ' yrs' +
+      (p.solitaryT>0 ? ' • <b style="color:#e05252">SOLITARY</b>' : '') + '</div>';
+    h += '<div class="chips">';
+    p.traits.forEach(function(t){ h += '<span class="chip">'+t+'</span>'; });
+    if (g) h += '<span class="chip gang">'+g.name+'</span>';
+    else if (p.affil) h += '<span class="chip">'+p.affil.name+' (unaffiliated)</span>';
+    if (p.contra) h += '<span class="chip" style="border:1px solid #e05252;color:#ffb3b3">holding: '+p.contra+'</span>';
+    h += '</div>';
+    h += '<div class="story">“'+p.story+'”</div>';
+    h += needBar('Hunger', p.needs.hunger) + needBar('Energy', p.needs.energy) +
+         needBar('Comfort', p.needs.comfort) + needBar('Safety', p.needs.safety) +
+         needBar('Social', p.needs.social);
+    h += '<div class="sub" style="margin-top:8px">Friends: '+p.friends.length +
+      ' • Block ' + BLOCKS[p.block].name + ' • ' + zoneOf(p.x,p.y) + '</div>';
+    h += '<div class="pbtns"><button id="psol" class="warn">SOLITARY 24H</button>' +
+         '<button id="ptran">TRANSFER $500</button></div>';
+    profEl.innerHTML = h;
+    profEl.style.display = 'block';
+    document.getElementById('pclose').onclick = closeProfile;
+    document.getElementById('psol').onclick = function(){ W.solitary(p.id); openProfile(p); };
+    document.getElementById('ptran').onclick = function(){ if (W.transfer(p.id)) closeProfile(); };
+  }
+  function closeProfile(){ profEl.style.display = 'none'; }
+
+  // ---- toolbar ----
+  document.getElementById('btn-pause').onclick = function(){ sim.paused = !sim.paused; updateHUD(); };
+  document.getElementById('btn-speed').onclick = function(){
+    sim.speed = sim.speed === 1 ? 2 : sim.speed === 2 ? 4 : 1; updateHUD();
+  };
+  document.getElementById('btn-build').onclick = function(){ openMenu('build'); };
+  document.getElementById('btn-staff').onclick = function(){ openMenu('staff'); };
+  document.getElementById('btn-reports').onclick = function(){ openMenu('reports'); };
+  document.getElementById('btn-actions').onclick = function(){ openMenu('actions'); };
+
+  // ---- tap to select ----
+  canvas.addEventListener('pointerdown', function(ev){
+    const r = imgRect();
+    const x = (ev.clientX - r.ox)/r.scale, y = (ev.clientY - r.oy)/r.scale;
+    const p = inmateAt(x, y);
+    if (p){ openProfile(p); return; }
+    let g = null, bd = 20;
+    for (const gg of sim.guards){ const d = dist(x, y, gg.x, gg.y-12); if (d < bd){ bd = d; g = gg; } }
+    if (g){ sim.selected = g.id; toast(g.name + ' — on duty.'); closeProfile(); }
+    else { sim.selected = null; closeProfile(); }
+  });
+
+  // ---- boot ----
+  newGame();
+  try { // headless QA hook: ?speed=2 / ?speed=4
+    const sp = parseInt(new URLSearchParams(location.search).get('speed') || '', 10);
+    if (sp === 2 || sp === 4) sim.speed = sp;
+  } catch (hq) {}
+  sizeCanvas();
+  updateHUD();
+  let last = performance.now(), acc = 0, frames = 0;
+  function frame(now){
+    const dtReal = Math.min(0.1, (now - last)/1000); last = now;
+    if (!sim.paused) acc += dtReal * 3 * sim.speed;   // 3 game-min per real second at 1x
+    let n = 0;
+    while (acc >= 1 && n < 600){ tick(1); acc -= 1; n++; }
+    if (n >= 600) acc = 0;
+    render(ctx, canvas.width, canvas.height, now/1000);
+    if (++frames % 6 === 0) updateHUD();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // test hook: advance the sim the way the frame loop does
+  __lockdown.advance = function(dtReal){
+    let steps = 0;
+    if (!sim.paused){
+      let a = dtReal * 3 * sim.speed;
+      while (a >= 1 && steps < 200000){ tick(1); a -= 1; steps++; }
+    }
+    return steps;
+  };
+})();
+}
+</script>
+</body>
+</html>
