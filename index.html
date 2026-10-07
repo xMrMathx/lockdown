@@ -210,6 +210,23 @@ function onRoof(x, y, pad){
   return false;
 }
 
+// Building occlusion — measured against assets/prison-bg.webp. When a figure's
+// feet are above a building's front (south) face, the building is redrawn over
+// them: you can't see someone walking behind a building, they get cut off by it.
+// (Cell blocks are NOT occluders — inmates sleeping in their cells stay visible.)
+const OCCLUDERS = [
+  {x:710,  y:490,  w:500, h:145},  // kitchen roof (open serving area below stays visible)
+  {x:590,  y:730,  w:250, h:155},  // storage + brick wall face
+  {x:725,  y:890,  w:230, h:150},  // cafeteria block + annex
+  {x:725,  y:140,  w:120, h:155},  // admin
+  {x:440,  y:0,    w:100, h:230},  // west watchtower (tall: full column)
+  {x:1390, y:0,    w:100, h:230},  // east watchtower (tall: full column)
+  {x:430,  y:1035, w:110, h:135},  // west gatehouse
+  {x:635,  y:1055, w:95,  h:70},   // east gatehouse
+  {x:1120, y:1040, w:180, h:90},   // utility building
+  {x:598,  y:1118, w:64,  h:87},   // gate road shed
+];
+
 // Walkable OPEN GROUND only — every rect verified against the map image.
 // The roof veto above is the backstop: zones never need to overlap roofs.
 const ZONES = {
@@ -1452,8 +1469,8 @@ function debugRiot(){ startRiot(); }
 globalThis.__lockdown = {
   newGame, tick, W, sim: () => sim,
   inmateAt, isWalkable, debugRiot, startFight,
-  resolveCellSearch, tickNightChecks, tickDeception, captureEscapee, cellRect,
-  BLOCKS, NODES, ZONES,
+  resolveCellSearch, tickNightChecks, tickDeception, captureEscapee, cellRect, cellSpot,
+  BLOCKS, NODES, ZONES, OCCLUDERS,
   version: 3,
 };
 
@@ -1718,6 +1735,21 @@ function render(ctx, cw, ch, now){
 
   // zoomed-in cell details: beds, desks, sheets over bars, bed dummies
   if (cam.zoom > 2) drawCellSheets(ctx);
+
+  // building occlusion: anyone behind a building gets cut off by it — redraw
+  // the building's footprint (from the pre-rendered background) over figures
+  // whose feet are above its front face. Runs before the time-of-day grade so
+  // lighting stays consistent.
+  if (typeof bgOff !== 'undefined' && bgOff){
+    for (const o of OCCLUDERS){
+      const fy = o.y + o.h, ox0 = o.x - 8, ox1 = o.x + o.w + 8;
+      let behind = false;
+      for (const e of drawList){
+        if (e.y < fy && e.x > ox0 && e.x < ox1){ behind = true; break; }
+      }
+      if (behind) ctx.drawImage(bgOff, o.x, o.y, o.w, o.h, o.x, o.y, o.w, o.h);
+    }
+  }
 
   const hour = sim.minutes / 60;
   const night = (hour >= 20 || hour < 5);
